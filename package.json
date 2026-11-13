@@ -1,0 +1,17 @@
+{
+  "name": "renard-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A pixel-art fox companion for claude.ai and ChatGPT that answers questions with your own Anthropic or OpenAI API key.",
+  "type": "module",
+  "scripts": {
+    "start": "web-ext run --source-dir src --start-url https://claude.ai/new",
+    "start:chrome": "web-ext run --source-dir src --target chromium --start-url https://claude.ai/new",
+    "lint": "web-ext lint --source-dir src",
+    "build": "web-ext build --source-dir src --overwrite-dest",
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "web-ext": "10.8.0"
+  }
+}
