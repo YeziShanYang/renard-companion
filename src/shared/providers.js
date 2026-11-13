@@ -1,0 +1,334 @@
+// Anthropic and OpenAI clients over plain fetch: model listing and streamed
+// answers. Used by the background script (answers) and the options page
+// (model list, which doubles as the key check).
+
+export const ANTHROPIC_VERSION = '2026-10-21';
+const ANTHROPIC_BASE = 'https://api.anthropic.com';
+const OPENAI_BASE = 'https://api.openai.com';
+
+// Models that accept server-side refusal fallbacks. When their safety
+// classifiers decline a request, the API retries it on the model Anthropic
+// recommends for that category instead of returning a refusal.
+const ANTHROPIC_FALLBACK_MODELS = new Set([
+  'claude-fable-5-2',
+  'claude-mythos-5-2',
+  'claude-fable-5-1',
+  'claude-mythos-5-1',
+  'claude-opus-5-5',
+  'claude-opus-5',
+  'claude-sonnet-5-5',
+]);
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+
+const MAX_OUTPUT_TOKENS = 16000;
+
+export class ProviderError extends Error {
+  // kind: keyMissing | keyInvalid | modelUnavailable | rateLimited | network
+  //       | permission | refused | aborted | unknown
+  constructor(kind, message, { status = 0 } = {}) {
+    super(message || kind);
+    this.name = 'ProviderError';
+    this.kind = kind;
+    this.status = status;
+  }
+}
+
+export function classifyHttpError(status, body) {
+  const err = (body && body.error) || {};
+  const message = (typeof err === 'string' ? err : err.message) || '';
+  const code = (typeof err === 'object' && (err.code || err.type)) || '';
+  if (status === 401 || status === 402 || status === 403) return 'keyInvalid';
+  if (status === 404) return 'modelUnavailable';
+  if (status === 429) return code === 'insufficient_quota' ? 'keyInvalid' : 'rateLimited';
+  if (status === 400 && /credit balance|billing|quota/i.test(message)) return 'keyInvalid';
+  if (status === 400 && /model/i.test(message) && /not found|does not exist|not supported|invalid model/i.test(message)) {
+    return 'modelUnavailable';
+  }
+  if (status >= 500) return 'network';
+  return 'unknown';
+}
+
+function classifyStreamError(type) {
+  if (type === 'rate_limit_error' || type === 'rate_limit_exceeded') return 'rateLimited';
+  if (type === 'overloaded_error' || type === 'api_error' || type === 'server_error') return 'network';
+  if (type === 'authentication_error' || type === 'permission_error' || type === 'insufficient_quota') return 'keyInvalid';
+  if (type === 'not_found_error' || type === 'model_not_found') return 'modelUnavailable';
+  return 'unknown';
+}
+
+// Incremental Server-Sent Events parser. push() returns complete events.
+export class SSEParser {
+  constructor() {
+    this.buffer = '';
+  }
+
+  push(chunk) {
+    this.buffer += chunk;
+    // Hold back a trailing \r: it may be the first half of a \r\n pair.
+    let text = this.buffer;
+    let held = '';
+    if (text.endsWith('\r')) {
+      held = '\r';
+      text = text.slice(0, -1);
+    }
+    text = text.replace(/\r\n?/g, '\n');
+    const events = [];
+    let idx;
+    while ((idx = text.indexOf('\n\n')) !== -1) {
+      const ev = parseEvent(text.slice(0, idx));
+      if (ev) events.push(ev);
+      text = text.slice(idx + 2);
+    }
+    this.buffer = text + held;
+    return events;
+  }
+
+  flush() {
+    const ev = parseEvent(this.buffer.replace(/\r\n?/g, '\n'));
+    this.buffer = '';
+    return ev ? [ev] : [];
+  }
+}
+
+function parseEvent(raw) {
+  let event = 'message';
+  const data = [];
+  for (const line of raw.split('\n')) {
+    if (!line || line.startsWith(':')) continue;
+    const i = line.indexOf(':');
+    const field = i === -1 ? line : line.slice(0, i);
+    let value = i === -1 ? '' : line.slice(i + 1);
+    if (value.startsWith(' ')) value = value.slice(1);
+    if (field === 'event') event = value;
+    else if (field === 'data') data.push(value);
+  }
+  return data.length ? { event, data: data.join('\n') } : null;
+}
+
+async function* readEvents(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = new SSEParser();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    yield* parser.push(decoder.decode(value, { stream: true }));
+  }
+  yield* parser.push(decoder.decode());
+  yield* parser.flush();
+}
+
+function parseData(ev) {
+  if (ev.data === '[DONE]') return null;
+  try {
+    return JSON.parse(ev.data);
+  } catch {
+    return null;
+  }
+}
+
+function toProviderError(err) {
+  if (err instanceof ProviderError) return err;
+  if (err && err.name === 'AbortError') return new ProviderError('aborted', 'Request cancelled');
+  return new ProviderError('network', (err && err.message) || 'Network error');
+}
+
+async function request(url, init) {
+  let res;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    throw toProviderError(err);
+  }
+  if (!res.ok) {
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      // Non-JSON error body; fall back to the status line.
+    }
+    const message = (body && body.error && (body.error.message || body.error)) || res.statusText || `HTTP ${res.status}`;
+    throw new ProviderError(classifyHttpError(res.status, body), String(message), { status: res.status });
+  }
+  return res;
+}
+
+// Sends with optional parameters first; if the provider rejects the request
+// as malformed, retries once without them. Covers models that do not accept
+// a given optional field (effort, reasoning, fallbacks).
+async function sendWithOptional(send, optional) {
+  try {
+    return await send(optional);
+  } catch (err) {
+    if (err instanceof ProviderError && err.kind === 'unknown' && err.status === 400 && Object.keys(optional).length) {
+      return send({});
+    }
+    throw err;
+  }
+}
+
+function anthropicHeaders(apiKey) {
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': ANTHROPIC_VERSION,
+    'content-type': 'application/json',
+    // Required by the Anthropic API for requests that carry a browser Origin.
+    'anthropic-dangerous-direct-browser-access': 'true',
+  };
+}
+
+function openaiHeaders(apiKey) {
+  return { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' };
+}
+
+const OPENAI_INCLUDE = /^(gpt-|chatgpt-|o\d)/i;
+const OPENAI_EXCLUDE =
+  /(embedding|whisper|tts|dall-e|davinci|babbage|moderation|transcribe|realtime|audio|image|search|computer-use|instruct|sora|diarize)/i;
+
+export function isOpenAIChatModel(id) {
+  return OPENAI_INCLUDE.test(id) && !OPENAI_EXCLUDE.test(id);
+}
+
+function isOpenAIReasoningModel(id) {
+  return /^(o\d|gpt-5)/i.test(id) && !/chat/i.test(id);
+}
+
+export async function listModels(provider, apiKey, { signal } = {}) {
+  if (!apiKey) throw new ProviderError('keyMissing', 'No API key');
+  if (provider === 'anthropic') {
+    const models = [];
+    let after = null;
+    for (let page = 0; page < 10; page++) {
+      const url = new URL('/v1/models', ANTHROPIC_BASE);
+      url.searchParams.set('limit', '1000');
+      if (after) url.searchParams.set('after_id', after);
+      const res = await request(url, { headers: anthropicHeaders(apiKey), signal });
+      const body = await res.json();
+      for (const m of body.data || []) {
+        models.push({
+          id: m.id,
+          name: m.display_name || m.id,
+          maxTokens: Number(m.max_tokens) || null,
+          effortLow: Boolean(m.capabilities && m.capabilities.effort && m.capabilities.effort.low && m.capabilities.effort.low.supported),
+        });
+      }
+      if (!body.has_more || !body.last_id) break;
+      after = body.last_id;
+    }
+    return models; // newest first, as the API returns them
+  }
+  if (provider === 'openai') {
+    const res = await request(new URL('/v1/models', OPENAI_BASE), { headers: openaiHeaders(apiKey), signal });
+    const body = await res.json();
+    return (body.data || [])
+      .filter((m) => isOpenAIChatModel(m.id))
+      .sort((a, b) => (b.created || 0) - (a.created || 0))
+      .map((m) => ({ id: m.id, name: m.id, maxTokens: null, effortLow: false }));
+  }
+  throw new ProviderError('unknown', `Unknown provider: ${provider}`);
+}
+
+async function streamAnthropic({ apiKey, model, system, user, signal, onDelta }) {
+  const base = {
+    model: model.id,
+    max_tokens: Math.min(MAX_OUTPUT_TOKENS, model.maxTokens || 4096),
+    system,
+    messages: [{ role: 'user', content: user }],
+    stream: true,
+  };
+  const optional = {};
+  // A quick-help panel favors speed; low effort keeps answers prompt.
+  if (model.effortLow) optional.output_config = { effort: 'low' };
+  if (ANTHROPIC_FALLBACK_MODELS.has(model.id)) optional.fallbacks = 'default';
+
+  const res = await sendWithOptional((opts) => {
+    const headers = anthropicHeaders(apiKey);
+    if (opts.fallbacks) headers['anthropic-beta'] = FALLBACK_BETA;
+    return request(new URL('/v1/messages', ANTHROPIC_BASE), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...base, ...opts }),
+      signal,
+    });
+  }, optional);
+
+  let stopReason = null;
+  for await (const ev of readEvents(res)) {
+    const data = parseData(ev);
+    if (!data) continue;
+    if (data.type === 'content_block_delta' && data.delta && data.delta.type === 'text_delta') {
+      onDelta(data.delta.text);
+    } else if (data.type === 'message_delta' && data.delta && data.delta.stop_reason) {
+      stopReason = data.delta.stop_reason;
+    } else if (data.type === 'error') {
+      const e = data.error || {};
+      throw new ProviderError(classifyStreamError(e.type), e.message || 'Stream error');
+    }
+  }
+  // Text from a refused attempt is partial; the caller discards it.
+  if (stopReason === 'refusal') throw new ProviderError('refused', 'The model declined this request.');
+  return { stopReason };
+}
+
+async function streamOpenAI({ apiKey, model, system, user, signal, onDelta }) {
+  const base = { model: model.id, instructions: system, input: user, stream: true, store: false };
+  const optional = {};
+  if (isOpenAIReasoningModel(model.id)) optional.reasoning = { effort: 'low' };
+
+  const res = await sendWithOptional(
+    (opts) =>
+      request(new URL('/v1/responses', OPENAI_BASE), {
+        method: 'POST',
+        headers: openaiHeaders(apiKey),
+        body: JSON.stringify({ ...base, ...opts }),
+        signal,
+      }),
+    optional,
+  );
+
+  let stopReason = null;
+  let gotText = false;
+  let refused = false;
+  for await (const ev of readEvents(res)) {
+    const data = parseData(ev);
+    if (!data) continue;
+    switch (data.type) {
+      case 'response.output_text.delta':
+        if (data.delta) {
+          gotText = true;
+          onDelta(data.delta);
+        }
+        break;
+      case 'response.refusal.delta':
+        refused = true;
+        break;
+      case 'response.completed':
+        stopReason = 'end_turn';
+        break;
+      case 'response.incomplete':
+        stopReason = (data.response && data.response.incomplete_details && data.response.incomplete_details.reason) || 'incomplete';
+        break;
+      case 'response.failed': {
+        const e = (data.response && data.response.error) || {};
+        throw new ProviderError(classifyStreamError(e.code), e.message || 'The response failed.');
+      }
+      case 'error':
+        throw new ProviderError(classifyStreamError(data.code || (data.error && data.error.code)), data.message || 'Stream error');
+      default:
+        break;
+    }
+  }
+  if (refused && !gotText) throw new ProviderError('refused', 'The model declined this request.');
+  return { stopReason };
+}
+
+export async function streamAnswer(provider, params) {
+  if (!params.apiKey) throw new ProviderError('keyMissing', 'No API key');
+  try {
+    if (provider === 'anthropic') return await streamAnthropic(params);
+    if (provider === 'openai') return await streamOpenAI(params);
+  } catch (err) {
+    throw toProviderError(err);
+  }
+  throw new ProviderError('unknown', `Unknown provider: ${provider}`);
+}
