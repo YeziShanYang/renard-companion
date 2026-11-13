@@ -1,0 +1,859 @@
+/* Renard's on-page UI. Loaded into a closed Shadow DOM, so nothing here
+   touches the host site and the host site's styles stay out. */
+
+:host {
+  all: initial !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  display: block !important;
+  z-index: 2147483646 !important;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ---- tokens ----------------------------------------------------------- */
+
+.renard-root {
+  --u: 3px; /* one art pixel at 3x */
+  --paper: #fff8ee;
+  --panel: #fffdf9;
+  --ink: #2f2f2e;
+  --text: #2a2522;
+  --muted: #6b5d52;
+  --orange: #d67941;
+  --orange-hi: #e28a54;
+  --rust: #9d5021;
+  --on-orange: #1e1c1a;
+  --accent: #2b7a80;
+  --link: #1f6b72;
+  --btn: #f1e2cc;
+  --btn-hi: #f8ecdb;
+  --code-bg: #f3eadf;
+  --notice: #fbe6d4;
+  --drop: rgba(47, 47, 46, 0.28);
+  --focus: #2b7a80;
+
+  --font-pixel: 'Renard Pixel', ui-monospace, Menlo, Consolas, monospace;
+  --font-read: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-ui: var(--font-pixel);
+  --ui-size: 16px;
+
+  color: var(--text);
+  font: 15px/1.55 var(--font-read);
+  -webkit-font-smoothing: antialiased;
+}
+
+.renard-root[data-theme='dark'] {
+  --paper: #2b2420;
+  --panel: #211c19;
+  --ink: #c9733e;
+  --text: #f2e8dc;
+  --muted: #bcaa98;
+  --orange: #d67941;
+  --orange-hi: #e28a54;
+  --rust: #9d5021;
+  --on-orange: #1e1c1a;
+  --accent: #6cc3c6;
+  --link: #8fd6d8;
+  --btn: #3a312b;
+  --btn-hi: #463b34;
+  --code-bg: #1a1614;
+  --notice: #3d2b20;
+  --drop: rgba(0, 0, 0, 0.5);
+  --focus: #6cc3c6;
+}
+
+/* Readable text: plain font for canned lines and controls. */
+.renard-root[data-readable='true'] {
+  --font-ui: var(--font-read);
+  --ui-size: 14px;
+}
+
+.renard-root[data-hidden='true'] {
+  display: none;
+}
+
+.renard-root[data-switching] *,
+.renard-root[data-switching] *::before,
+.renard-root[data-switching] *::after {
+  transition: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- pixel surfaces ---------------------------------------------------- */
+
+/* Outline with one-step notched corners, plus a solid offset drop shadow
+   that follows the notched shape (and the tail). The transparent outline
+   becomes visible in forced-colors mode, where box-shadow is removed. */
+.px-box {
+  background: var(--paper);
+  box-shadow:
+    0 calc(var(--u) * -1) 0 0 var(--ink),
+    0 var(--u) 0 0 var(--ink),
+    calc(var(--u) * -1) 0 0 0 var(--ink),
+    var(--u) 0 0 0 var(--ink);
+  filter: drop-shadow(var(--u) var(--u) 0 var(--drop));
+  outline: var(--u) solid transparent;
+}
+
+.tail {
+  position: absolute;
+  width: calc(var(--u) * 5);
+  height: calc(var(--u) * 5);
+  pointer-events: none;
+}
+
+.tail-fill {
+  fill: var(--paper);
+}
+
+.tail-ink {
+  fill: var(--ink);
+}
+
+.px-icon {
+  display: block;
+}
+
+/* ---- the fox ----------------------------------------------------------- */
+
+.fox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 96px;
+  height: 96px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.fox-art {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: translate 120ms ease-out;
+}
+
+.fox-canvas {
+  display: block;
+  width: 96px;
+  height: 96px;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.fox[data-facing='left'] .fox-canvas {
+  transform: scaleX(-1);
+}
+
+/* Hit area covers the drawn fox, not the empty top of the frame. */
+.fox-hit {
+  position: absolute;
+  left: 9px;
+  top: 39px;
+  width: 78px;
+  height: 57px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fox[data-dragging] .fox-hit {
+  cursor: grabbing;
+}
+
+/* The ring is for keyboard users; it hides while the fox is handled with a
+   pointer and returns on the next key press. */
+.fox:not([data-pointer]) .fox-hit:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .fox[data-mode='idle'] .fox-hit:hover + .fox-art {
+    translate: 0 calc(var(--u) * -1);
+  }
+}
+
+/* ---- speech tag (bubble closed) ---------------------------------------- */
+
+.tag {
+  position: absolute;
+  bottom: 64px;
+  width: max-content;
+  max-width: 220px;
+  padding: 7px 9px 6px;
+  color: var(--text);
+  font: var(--ui-size) / 1.15 var(--font-ui);
+  pointer-events: none;
+  opacity: 0;
+  translate: 0 4px;
+  transition:
+    opacity 150ms ease-out,
+    translate 150ms ease-out;
+}
+
+.tag[data-show='true'] {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.fox[data-edge='right'] .tag {
+  right: 34px;
+}
+
+.fox[data-edge='left'] .tag {
+  left: 34px;
+}
+
+.tag .tail {
+  top: 100%;
+  width: calc(var(--u) * 4);
+  height: calc(var(--u) * 4);
+}
+
+.fox[data-edge='right'] .tag .tail {
+  right: 18px;
+  transform: scaleX(-1) rotate(90deg);
+}
+
+.fox[data-edge='left'] .tag .tail {
+  left: 18px;
+  transform: rotate(90deg);
+}
+
+/* ---- bubble ------------------------------------------------------------ */
+
+.bubble {
+  position: fixed;
+  top: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: var(--w, 420px);
+  max-height: var(--max-h, 80vh);
+  padding: 14px 14px 12px;
+  pointer-events: auto;
+  color: var(--text);
+  opacity: 0;
+  visibility: hidden;
+  translate: 0 8px;
+  transition:
+    opacity 150ms ease-out,
+    translate 150ms ease-out,
+    visibility 0s linear 150ms;
+}
+
+.bubble[data-open='true'] {
+  opacity: 1;
+  visibility: visible;
+  translate: 0 0;
+  transition:
+    opacity 200ms ease-out,
+    translate 200ms ease-out,
+    visibility 0s;
+}
+
+.bubble[data-expanded='true'] {
+  height: var(--expanded-h, 80vh);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble,
+  .bubble[data-open='true'] {
+    translate: none;
+  }
+}
+
+.bubble[data-anchor='bottom'] > .tail {
+  bottom: clamp(18px, var(--tail-offset, 40px), calc(100% - 30px));
+}
+
+.bubble[data-anchor='top'] > .tail {
+  top: clamp(12px, var(--tail-offset, 40px), calc(100% - 30px));
+}
+
+.bubble[data-side='left'] > .tail {
+  left: 100%;
+}
+
+.bubble[data-side='right'] > .tail {
+  right: 100%;
+  transform: scaleX(-1);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-inline-start: 6px;
+}
+
+.bubble[data-side='right'] .head {
+  padding-inline: 0 14px;
+}
+
+.line {
+  flex: 1;
+  min-height: 1.25em;
+  margin: 4px 0 0;
+  font: var(--ui-size) / 1.25 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---- buttons ------------------------------------------------------------ */
+
+/* Chunky square buttons: 2px notched outline, a thicker bottom edge, and a
+   2px drop when pressed. Pixel UI snaps, so there is no press transition. */
+.btn,
+.icon-btn {
+  --bu: 2px;
+  margin: var(--bu) var(--bu) calc(var(--bu) * 2);
+  border: 0;
+  background: var(--btn);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow:
+    0 calc(var(--bu) * -1) 0 0 var(--ink),
+    calc(var(--bu) * -1) 0 0 0 var(--ink),
+    var(--bu) 0 0 0 var(--ink),
+    0 var(--bu) 0 0 var(--ink),
+    0 calc(var(--bu) * 2) 0 0 var(--ink);
+  outline: var(--bu) solid transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 6px;
+  font: var(--ui-size) / 1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+.btn:not(:disabled):active,
+.icon-btn:not(:disabled):active {
+  translate: 0 var(--bu);
+  box-shadow:
+    0 calc(var(--bu) * -1) 0 0 var(--ink),
+    calc(var(--bu) * -1) 0 0 0 var(--ink),
+    var(--bu) 0 0 0 var(--ink),
+    0 var(--bu) 0 0 var(--ink);
+}
+
+@media (hover: hover) {
+  .btn:not(:disabled):hover,
+  .icon-btn:not(:disabled):hover {
+    background: var(--btn-hi);
+  }
+
+  .btn-primary:not(:disabled):hover {
+    background: var(--orange-hi);
+  }
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: var(--on-orange);
+}
+
+.btn:disabled,
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+/* Expand/collapse and copy/check keep both icons in the DOM and cross-fade. */
+.icon-btn > .px-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity 200ms ease-out,
+    scale 200ms ease-out;
+}
+
+.icon-btn > .px-icon-collapse,
+.copy-btn > .px-icon-check,
+.icon-btn[aria-pressed='true'] > .px-icon-expand,
+.copy-btn[data-copied='true'] > .px-icon-copy {
+  opacity: 0;
+  scale: 0.5;
+}
+
+.icon-btn[aria-pressed='true'] > .px-icon-collapse,
+.copy-btn[data-copied='true'] > .px-icon-check {
+  opacity: 1;
+  scale: 1;
+}
+
+.copy-btn[data-copied='true'] {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn > .px-icon {
+    scale: 1 !important;
+  }
+}
+
+.send-btn .px-icon-stop {
+  display: none;
+  width: 10px;
+  height: 10px;
+}
+
+.bubble[data-streaming='true'] .send-btn .px-icon-stop {
+  display: block;
+}
+
+/* ---- notice -------------------------------------------------------------- */
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  background: var(--notice);
+}
+
+.notice-text {
+  flex: 1 1 180px;
+  margin: 0;
+  font: 13px/1.45 var(--font-read);
+  overflow-wrap: anywhere;
+}
+
+/* ---- question and answer ----------------------------------------------- */
+
+.qa {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.qa-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.asked {
+  flex: 1;
+  margin: 3px 0 0;
+  color: var(--muted);
+  font: 13px/1.4 var(--font-read);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.asked-label {
+  font-weight: 600;
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+  font: italic 12.5px/1.4 var(--font-read);
+}
+
+.answer-box {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 2px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.answer-box:has(.answer:empty) {
+  display: none;
+}
+
+.answer {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: var(--answer-max, 60vh);
+  padding: 12px 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  font: 15px/1.6 var(--font-read);
+  overflow-wrap: break-word;
+}
+
+.bubble[data-expanded='true'] .answer {
+  max-height: none;
+}
+
+.answer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.answer > :first-child {
+  margin-top: 0;
+}
+
+.answer > :last-child {
+  margin-bottom: 0;
+}
+
+.answer p,
+.answer ul,
+.answer ol,
+.answer pre,
+.answer blockquote,
+.answer .table-wrap {
+  margin: 0 0 0.75em;
+}
+
+.answer h3,
+.answer h4,
+.answer h5 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.answer h3 {
+  font-size: 16.5px;
+}
+
+.answer h4 {
+  font-size: 15.5px;
+}
+
+.answer h5 {
+  font-size: 15px;
+}
+
+.answer ul,
+.answer ol {
+  padding-left: 1.4em;
+}
+
+.answer li + li {
+  margin-top: 0.25em;
+}
+
+.answer li > p {
+  margin: 0;
+}
+
+.answer li > ul,
+.answer li > ol {
+  margin: 0.25em 0 0;
+}
+
+.answer code {
+  padding: 0.1em 0.35em;
+  background: var(--code-bg);
+  font: 0.88em/1.4 var(--font-mono);
+}
+
+.answer pre {
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--code-bg);
+  font: 13px/1.5 var(--font-mono);
+}
+
+.answer pre code {
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+
+.answer a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.answer blockquote {
+  padding-left: 10px;
+  border-left: 3px solid var(--orange);
+  color: var(--muted);
+}
+
+.answer hr {
+  height: 2px;
+  margin: 1em 0;
+  border: 0;
+  background: var(--ink);
+  opacity: 0.35;
+}
+
+.answer .table-wrap {
+  overflow-x: auto;
+}
+
+.answer table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.answer th,
+.answer td {
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.answer th {
+  font-weight: 600;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--orange);
+  animation: renard-blink 1s steps(1) infinite;
+}
+
+@keyframes renard-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---- input --------------------------------------------------------------- */
+
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.input-box {
+  position: relative;
+  margin: 2px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.input-box:focus-within {
+  box-shadow:
+    0 -2px 0 0 var(--focus),
+    0 2px 0 0 var(--focus),
+    -2px 0 0 0 var(--focus),
+    2px 0 0 0 var(--focus);
+}
+
+.input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  max-height: 120px;
+  margin: 0;
+  padding: 9px 10px 8px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: 15px/1.4 var(--font-read);
+  caret-color: var(--orange);
+}
+
+.input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+  font: var(--ui-size) / 1.3 var(--font-ui);
+}
+
+/* Blinking block cursor while the box is empty and focused. */
+.input:placeholder-shown {
+  caret-color: transparent;
+}
+
+.input:focus:placeholder-shown {
+  text-indent: 14px;
+}
+
+.block-caret {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: none;
+  width: 9px;
+  height: 18px;
+  background: var(--orange);
+  pointer-events: none;
+  animation: renard-blink 1.06s steps(1) infinite;
+}
+
+.input-box:focus-within .input:placeholder-shown + .block-caret {
+  display: block;
+}
+
+.ask-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* ---- read-chat switch ---------------------------------------------------- */
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font: var(--ui-size) / 1 var(--font-ui);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 14px;
+  margin: 2px;
+  background: var(--btn);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  background: var(--ink);
+  transition: translate 120ms steps(3, end);
+}
+
+.switch-input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch-input:checked + .switch-track .switch-thumb {
+  translate: 14px 0;
+  background: var(--paper);
+}
+
+.switch-input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.switch .px-icon-chat {
+  color: var(--muted);
+}
+
+/* ---- resize grip ------------------------------------------------------- */
+
+.grip {
+  position: absolute;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.bubble[data-side='left'] .grip {
+  left: 1px;
+}
+
+.bubble[data-side='right'] .grip {
+  right: 1px;
+  cursor: nesw-resize;
+}
+
+.bubble[data-side='right'] .grip .px-icon {
+  transform: scaleX(-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-cursor,
+  .block-caret {
+    animation: none;
+  }
+
+  .switch-thumb,
+  .fox-art,
+  .tag {
+    transition: none;
+  }
+}
