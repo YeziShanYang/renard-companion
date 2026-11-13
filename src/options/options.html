@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renard settings</title>
+    <link rel="icon" href="../icons/icon-32.png" />
+    <link rel="stylesheet" href="options.css" />
+    <script src="../shared/constants.js"></script>
+    <script src="../content/sprite.js"></script>
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <button class="hero-fox" type="button" aria-label="Renard. Click for a pounce.">
+          <canvas id="fox" width="32" height="32"></canvas>
+        </button>
+        <div>
+          <h1>Renard</h1>
+          <p class="hero-sub">A pixel fox for claude.ai and ChatGPT that answers with your own API key.</p>
+        </div>
+      </header>
+
+      <p class="card warn" id="sprite-missing" hidden>
+        The fox sprite sheet is missing, so Renard shows a placeholder. Save Elthen's sheet as
+        <code>src/assets/fox-sprite-sheet.png</code> and reload the extension.
+      </p>
+
+      <section class="card" aria-labelledby="ai-title">
+        <h2 id="ai-title">AI provider</h2>
+        <div class="segmented" role="radiogroup" aria-label="Provider">
+          <label><input type="radio" name="provider" value="anthropic" /><span>Anthropic</span></label>
+          <label><input type="radio" name="provider" value="openai" /><span>OpenAI</span></label>
+        </div>
+
+        <div class="field">
+          <label for="key" id="key-label">API key</label>
+          <div class="key-row">
+            <div class="input-wrap">
+              <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your key" />
+            </div>
+            <button class="btn" type="button" id="key-toggle" aria-controls="key" aria-pressed="false">Show</button>
+          </div>
+          <p class="status" id="key-status" role="status"></p>
+          <p class="hint" id="key-hint"></p>
+        </div>
+
+        <div class="field">
+          <label for="model">Model</label>
+          <div class="input-wrap select-wrap">
+            <select id="model" disabled>
+              <option>Connect a key to load models</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="sites-title">
+        <h2 id="sites-title">Sites</h2>
+        <p class="hint">Renard appears only on the sites you turn on here.</p>
+        <ul class="rows" id="sites"></ul>
+        <div class="access" id="api-access" hidden>
+          <p class="hint" id="api-access-text"></p>
+          <button class="btn btn-primary" type="button" id="api-access-btn">Allow access</button>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="display-title">
+        <h2 id="display-title">Display</h2>
+        <ul class="rows">
+          <li class="row">
+            <div class="row-text">
+              <span class="row-title" id="readable-label">Readable text</span>
+              <span class="hint">Use a plain font for Renard's lines and buttons. Answers always use a plain font.</span>
+            </div>
+            <label class="switch"
+              ><input type="checkbox" role="switch" id="readable" aria-labelledby="readable-label" /><span class="switch-track"
+                ><span class="switch-thumb"></span></span
+            ></label>
+          </li>
+          <li class="row">
+            <div class="row-text">
+              <span class="row-title" id="sound-label">Sound</span>
+              <span class="hint">A soft blip while Renard talks.</span>
+            </div>
+            <label class="switch"
+              ><input type="checkbox" role="switch" id="sound" aria-labelledby="sound-label" /><span class="switch-track"
+                ><span class="switch-thumb"></span></span
+            ></label>
+          </li>
+        </ul>
+      </section>
+
+      <section class="card" aria-labelledby="keys-title">
+        <h2 id="keys-title">Keyboard shortcuts</h2>
+        <ul class="rows" id="shortcuts"></ul>
+        <p class="hint" id="shortcut-hint"></p>
+      </section>
+
+      <section class="card" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">Privacy</h2>
+        <ul class="plain">
+          <li>
+            Your questions go straight from this browser to the provider you chose. Renard has no server, and its
+            developer never sees your questions, chats, or key.
+          </li>
+          <li>
+            With <strong>Read chat</strong> on, the conversation on the page is sent along with your question, only when
+            you ask. It is never stored.
+          </li>
+          <li>
+            The site and the provider are independent. A ChatGPT conversation can be sent to Anthropic, and a Claude
+            conversation to OpenAI.
+          </li>
+          <li>
+            Your API key is stored on this device in the browser's extension storage, unencrypted, which is standard for
+            bring-your-own-key extensions. Anyone with access to this browser profile could read it.
+          </li>
+        </ul>
+      </section>
+
+      <footer class="credits">
+        <p>Fox art by Elthen. Silkscreen font by The Silkscreen Project Authors, SIL Open Font License.</p>
+        <p class="saved" id="saved" role="status" aria-live="polite"></p>
+      </footer>
+    </main>
+  </body>
+</html>
