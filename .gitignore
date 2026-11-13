@@ -1,0 +1,13 @@
+# Licensed art: Elthen's Common Sense License forbids redistributing the
+# assets, so the sprite sheet stays out of version control.
+assets/fox-sprite-sheet.png
+
+# Build output
+web-ext-artifacts/
+dist/
+node_modules/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
