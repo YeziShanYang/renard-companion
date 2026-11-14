@@ -5,9 +5,14 @@
   "description": "A pixel-art fox companion for claude.ai and ChatGPT that answers questions with your own Anthropic, OpenAI, or Gemini API key.",
   "type": "module",
   "scripts": {
+    "icons": "node scripts/make-icons.mjs",
+    "postinstall": "node scripts/make-icons.mjs",
+    "prestart": "node scripts/make-icons.mjs",
     "start": "web-ext run --source-dir src --start-url https://claude.ai/new",
+    "prestart:chrome": "node scripts/make-icons.mjs",
     "start:chrome": "web-ext run --source-dir src --target chromium --start-url https://claude.ai/new",
     "lint": "web-ext lint --source-dir src",
+    "prebuild": "node scripts/make-icons.mjs",
     "build": "web-ext build --source-dir src --overwrite-dest",
     "test": "node --test \"test/*.test.mjs\""
   },
