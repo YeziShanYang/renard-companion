@@ -534,3 +534,139 @@ kbd {
     transition: none;
   }
 }
+
+/* ---- built-in model ---- */
+
+.local {
+  display: grid;
+  gap: 14px;
+}
+
+.local-intro {
+  margin: 0;
+}
+
+.local-gpu {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--warn);
+  font-size: 14px;
+}
+
+.local-models {
+  display: grid;
+  gap: 12px;
+}
+
+.model-choice {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 2px;
+  padding: 12px 14px;
+  background: var(--panel);
+  cursor: pointer;
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.model-choice:has(input:checked) {
+  box-shadow:
+    0 -2px 0 0 var(--orange),
+    0 2px 0 0 var(--orange),
+    -2px 0 0 0 var(--orange),
+    2px 0 0 0 var(--orange);
+}
+
+.model-choice:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.model-choice input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.model-dot {
+  grid-row: 1 / span 2;
+  width: 14px;
+  height: 14px;
+  background: var(--btn);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.model-choice input:checked ~ .model-dot {
+  background: var(--orange);
+}
+
+.model-name {
+  font-family: var(--font-pixel);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.model-size {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.model-blurb {
+  grid-column: 2 / span 2;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.model-state {
+  font-family: var(--font-pixel);
+  font-size: 12px;
+  color: var(--ok);
+}
+
+.local-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.meter {
+  display: grid;
+  gap: 6px;
+}
+
+.meter-bar {
+  height: 14px;
+  margin: 2px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+/* Fills in 4% steps so it advances like a pixel progress bar. */
+.meter-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--orange);
+}
+
+.meter .hint {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

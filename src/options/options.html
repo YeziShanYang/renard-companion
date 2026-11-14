@@ -33,9 +33,10 @@
           <label><input type="radio" name="provider" value="anthropic" /><span>Anthropic</span></label>
           <label><input type="radio" name="provider" value="openai" /><span>OpenAI</span></label>
           <label><input type="radio" name="provider" value="gemini" /><span>Gemini</span></label>
+          <label><input type="radio" name="provider" value="local" /><span>Built-in</span></label>
         </div>
 
-        <div class="field">
+        <div class="field" id="key-field">
           <label for="key" id="key-label">API key</label>
           <div class="key-row">
             <div class="input-wrap">
@@ -51,13 +52,31 @@
           <p class="hint" id="key-hint"></p>
         </div>
 
-        <div class="field">
+        <div class="field" id="model-field">
           <label for="model">Model</label>
           <div class="input-wrap select-wrap">
             <select id="model" disabled>
               <option>Connect a key to load models</option>
             </select>
           </div>
+        </div>
+
+        <div class="field local" id="local-field" hidden>
+          <p class="hint local-intro">
+            Gemma runs on this computer's graphics chip. No API key, and nothing you ask leaves your computer. The model
+            downloads once from Hugging Face and then works offline.
+          </p>
+          <p class="local-gpu" id="local-gpu" role="status" hidden></p>
+          <div class="local-models" role="radiogroup" aria-label="Built-in model" id="local-models"></div>
+          <div class="local-actions">
+            <button class="btn btn-primary" type="button" id="local-download">Download</button>
+            <button class="btn" type="button" id="local-delete" hidden>Delete</button>
+          </div>
+          <div class="meter" id="local-meter" hidden>
+            <div class="meter-bar"><span id="local-meter-fill"></span></div>
+            <p class="hint" id="local-meter-text"></p>
+          </div>
+          <p class="status" id="local-status" role="status"></p>
         </div>
       </section>
 
@@ -117,6 +136,10 @@
           <li>
             On the Gemini API's free tier, Google's terms let it use what you send, including any chat Renard includes,
             to improve its products, and human reviewers may read it. Requests on a paid Gemini plan are not used that way.
+          </li>
+          <li>
+            With the built-in model, your questions and chats never leave this computer. The only network use is the
+            one-time model download from Hugging Face.
           </li>
           <li>
             Your API key is stored on this device in the browser's extension storage, unencrypted, which is standard for

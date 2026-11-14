@@ -44,6 +44,14 @@ function renderProvider() {
   for (const radio of document.querySelectorAll('input[name="provider"]')) {
     radio.checked = radio.value === settings.provider;
   }
+  const isLocal = settings.provider === 'local';
+  $('key-field').hidden = isLocal;
+  $('model-field').hidden = isLocal;
+  $('local-field').hidden = !isLocal;
+  if (isLocal) {
+    renderLocal();
+    return;
+  }
   const provider = R.PROVIDERS[settings.provider];
   $('key-label').textContent = `${provider.name} API key`;
   $('key').value = settings.apiKeys[settings.provider] || '';
@@ -79,6 +87,7 @@ function describeError(err, providerName) {
 // Fetching the model list doubles as the key check.
 async function checkKey() {
   if (checkController) checkController.abort();
+  if (settings.provider === 'local') return;
   const provider = R.PROVIDERS[settings.provider];
   const key = settings.apiKeys[provider.id];
   models = [];
@@ -130,7 +139,8 @@ function bindAi() {
     // granted it resolves at once without a prompt. A new grant re-renders
     // the page through permissions.onAdded.
     radio.addEventListener('click', () => {
-      ext.permissions.request({ origins: R.PROVIDERS[radio.value].origins }).catch(() => {});
+      const origins = R.PROVIDERS[radio.value].origins;
+      if (origins.length) ext.permissions.request({ origins }).catch(() => {});
     });
     radio.addEventListener('change', async () => {
       if (!radio.checked) return;
@@ -162,6 +172,150 @@ function bindAi() {
     const chosen = models.find((m) => m.id === $('model').value);
     if (chosen) save({ models: { ...settings.models, [settings.provider]: chosen } });
   });
+}
+
+// ---- built-in model ------------------------------------------------------------
+
+const IS_FIREFOX = typeof ext.runtime.getBrowserInfo === 'function';
+let gpu = null; // { ok, f16, dtype } or { ok: false, reason }
+let downloadPort = null;
+
+function formatBytes(n) {
+  return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
+}
+
+async function detectGpu() {
+  const advice = 'Choose a cloud provider above instead.';
+  if (!navigator.gpu) return { ok: false, reason: `This browser can't use WebGPU on this computer, so the built-in model can't run here. ${advice}` };
+  let adapter = null;
+  try {
+    adapter = await navigator.gpu.requestAdapter();
+  } catch {
+    // treated as unavailable
+  }
+  if (!adapter) return { ok: false, reason: `This browser can't use the graphics chip on this computer, so the built-in model can't run here. ${advice}` };
+  const f16 = adapter.features.has('shader-f16');
+  return { ok: true, f16, dtype: R.localDtype(IS_FIREFOX, f16) };
+}
+
+function setLocalStatus(state, text) {
+  const el = $('local-status');
+  el.dataset.state = state || '';
+  el.textContent = text || '';
+}
+
+function renderLocal() {
+  const lm = settings.localModel;
+  const dtype = (gpu && gpu.dtype) || R.localDtype(IS_FIREFOX, true);
+  const list = $('local-models');
+  list.replaceChildren(
+    ...Object.values(R.LOCAL_MODELS).map((m) => {
+      const ready = lm.ready[m.id];
+      const label = document.createElement('label');
+      label.className = 'model-choice';
+      const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'local-model', value: m.id, checked: lm.key === m.id });
+      input.addEventListener('change', async () => {
+        if (!input.checked) return;
+        await save({ localModel: { ...settings.localModel, key: m.id } });
+        setLocalStatus('', '');
+        renderLocal();
+      });
+      const dot = Object.assign(document.createElement('span'), { className: 'model-dot' });
+      dot.setAttribute('aria-hidden', 'true');
+      const name = Object.assign(document.createElement('span'), { className: 'model-name', textContent: m.name });
+      const size = Object.assign(document.createElement('span'), {
+        className: ready ? 'model-state' : 'model-size',
+        textContent: ready ? `Downloaded · ${formatBytes(ready.bytes)}` : `${formatBytes(m.sizes[dtype])} download`,
+      });
+      const blurb = Object.assign(document.createElement('span'), { className: 'model-blurb', textContent: m.blurb });
+      label.append(input, dot, name, size, blurb);
+      return label;
+    }),
+  );
+
+  const selected = R.LOCAL_MODELS[lm.key] || R.LOCAL_MODELS['gemma-3-1b'];
+  const ready = lm.ready[selected.id];
+  const busy = Boolean(downloadPort);
+  $('local-download').hidden = Boolean(ready);
+  $('local-download').textContent = `Download ${selected.name} (${formatBytes(selected.sizes[dtype])})`;
+  $('local-download').disabled = busy || (gpu && !gpu.ok);
+  $('local-delete').hidden = !ready || busy;
+  $('local-delete').textContent = `Delete ${selected.name}`;
+  $('local-gpu').hidden = !gpu || gpu.ok;
+  $('local-gpu').textContent = gpu && !gpu.ok ? gpu.reason : '';
+  if (!busy && ready) setLocalStatus('ok', `✓ ${selected.name} is ready on this computer`);
+}
+
+function showMeter(loaded, total) {
+  $('local-meter').hidden = false;
+  const pct = total ? Math.min(1, loaded / total) : 0;
+  // Advance in 4% steps, like a pixel progress bar.
+  $('local-meter-fill').style.width = `${Math.floor(pct * 25) * 4}%`;
+  $('local-meter-text').textContent =
+    pct >= 1 ? 'Downloaded. Loading the model…' : `${formatBytes(loaded)} of ${formatBytes(total)} (${Math.floor(pct * 100)}%)`;
+}
+
+function startDownload() {
+  const selected = R.LOCAL_MODELS[settings.localModel.key];
+  if (!selected || downloadPort) return;
+  const port = ext.runtime.connect({ name: 'renard:local' });
+  downloadPort = port;
+  // Pings keep Firefox's background page awake for the whole download.
+  const ping = setInterval(() => {
+    try {
+      port.postMessage({ type: 'ping' });
+    } catch {
+      clearInterval(ping);
+    }
+  }, 10000);
+  const done = () => {
+    clearInterval(ping);
+    if (downloadPort === port) downloadPort = null;
+    $('local-meter').hidden = true;
+    renderLocal();
+  };
+  port.onMessage.addListener(async (m) => {
+    if (m.type === 'progress') {
+      showMeter(m.loaded, m.total);
+    } else if (m.type === 'ready') {
+      settings = await loadSettings();
+      port.disconnect();
+      done();
+    } else if (m.type === 'error') {
+      port.disconnect();
+      done();
+      setLocalStatus('bad', `✗ The download didn't finish: ${m.message}`);
+    }
+  });
+  port.onDisconnect.addListener(() => {
+    if (downloadPort !== port) return;
+    done();
+    setLocalStatus('bad', "✗ The download stopped. Try again.");
+  });
+  setLocalStatus('busy', `Downloading ${selected.name}. Keep this page open until it finishes.`);
+  showMeter(0, selected.sizes[(gpu && gpu.dtype) || 'q4']);
+  renderLocal();
+  port.postMessage({ type: 'prepare', key: selected.id });
+}
+
+async function deleteModel() {
+  const selected = R.LOCAL_MODELS[settings.localModel.key];
+  if (!selected) return;
+  $('local-delete').disabled = true;
+  const res = await ext.runtime.sendMessage({ type: 'renard:localRemove', key: selected.id });
+  $('local-delete').disabled = false;
+  if (!res || !res.ok) {
+    setLocalStatus('bad', `✗ Couldn't delete it: ${(res && res.error) || 'no response'}`);
+    return;
+  }
+  settings = await loadSettings();
+  setLocalStatus('', `${selected.name} was deleted from this computer.`);
+  renderLocal();
+}
+
+function bindLocal() {
+  $('local-download').addEventListener('click', startDownload);
+  $('local-delete').addEventListener('click', deleteModel);
 }
 
 // ---- sites and access -------------------------------------------------------
@@ -314,8 +468,10 @@ function drawFox() {
 
 async function init() {
   settings = await loadSettings();
+  gpu = await detectGpu();
   renderProvider();
   bindAi();
+  bindLocal();
   bindPrefs();
   drawFox();
   await Promise.all([renderSites(), renderAccess(), renderShortcuts()]);
