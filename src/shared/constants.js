@@ -37,7 +37,7 @@
     models: { anthropic: null, openai: null, gemini: null },
     sites: { claude: true, chatgpt: true },
     prefs: { readChat: true, readableText: false, sound: false },
-    bubble: { width: 420, height: 0, expanded: false },
+    bubble: { width: 520, height: 0, expanded: false },
     positions: {}, // per site: { edge: 'left' | 'right', y: 0..1 }
   };
 

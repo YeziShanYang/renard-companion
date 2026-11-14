@@ -117,7 +117,7 @@ const handlers = {
   'renard:saveBubble': async (msg) => {
     const b = msg.bubble || {};
     const bubble = {
-      width: clamp(Math.round(Number(b.width) || 420), 280, 4000),
+      width: clamp(Math.round(Number(b.width) || 520), 280, 4000),
       height: clamp(Math.round(Number(b.height) || 0), 0, 4000),
       expanded: Boolean(b.expanded),
     };

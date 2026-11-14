@@ -253,7 +253,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: var(--w, 420px);
+  width: var(--w, 520px);
   max-height: var(--max-h, 80vh);
   padding: 14px 14px 12px;
   pointer-events: auto;
@@ -531,7 +531,7 @@
 .answer {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 60vh;
+  max-height: 70vh;
   padding: 12px 14px;
   overflow: auto;
   overscroll-behavior: contain;

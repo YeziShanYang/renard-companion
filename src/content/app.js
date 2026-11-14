@@ -15,6 +15,9 @@
   const MAX_INSET = 260; // farthest it wanders from the edge
   const LEAP = 120; // entrance: the last stretch is a pounce
   const MARGIN = 12;
+  const BUBBLE_WIDTH = 520; // default width; corners resize it
+  const EXPANDED_WIDTH = 720;
+  const LEGACY_WIDTH = 420; // the earlier default, saved alongside the expand toggle
   const DEFAULT_POSITION = { edge: 'right', y: 0.7 };
   const DIZZY_CLICKS = 10;
   const DIZZY_WINDOW_MS = 3000;
@@ -646,8 +649,9 @@
       const room = side === 'left' ? r.left + overlap - MARGIN : vw - r.right + overlap - MARGIN;
       const maxW = Math.max(240, Math.min(vw * 0.9, room, vw - 2 * MARGIN));
       const expanded = Boolean(this.bubbleSize.expanded);
-      const wanted = expanded ? 640 : this.bubbleSize.width || 420;
-      const width = Math.min(Math.max(wanted, Math.min(320, maxW)), maxW);
+      const saved = this.bubbleSize.width && this.bubbleSize.width !== LEGACY_WIDTH ? this.bubbleSize.width : BUBBLE_WIDTH;
+      const wanted = expanded ? EXPANDED_WIDTH : saved;
+      const width = Math.min(Math.max(wanted, Math.min(360, maxW)), maxW);
       let left = side === 'left' ? r.left + overlap - width : r.right - overlap;
       left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - MARGIN - width));
 
