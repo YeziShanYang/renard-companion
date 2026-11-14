@@ -6,15 +6,21 @@
 
 ## What it does
 
+![Renard's answer bubble open beside the fox on a dark page, answering "why 256 per token vector"](docs/screenshot.webp)
+
 Renard is a pixel-art fox that lives in the side margins of the browser
 window on claude.ai and chatgpt.com, wandering around a little while it waits.
 Click it, ask a question, and the answer comes from your own Anthropic, OpenAI,
 or Gemini API key, or from a built-in Gemma model that runs on your own
-computer, streamed into a large, readable panel. With **Read chat** on, the conversation open on the page is sent along as
-context, so questions like "summarize this chat" work.
+computer, streamed into a large, readable panel. With **Read chat** on, the
+conversation open on the page is sent along as context, so questions like
+"summarize this chat" work.
 
 The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
 animations. The AI is only the answer engine and has no persona.
+
+Renard runs in Firefox (its primary browser) and Chrome. It is not on the
+add-on stores yet; load it from source as described below.
 
 ## Setup
 
@@ -76,8 +82,9 @@ fresh Chrome profile with Renard loaded.
 ### First run
 
 The settings page opens on install (it is also on the toolbar icon). Choose a
-provider, paste an API key, and pick a model. Loading the model list doubles as
-the key check.
+provider, paste an API key, and pick a model; loading the model list doubles as
+the key check. Or choose **Built-in** and download a Gemma model to run without
+a key (see below).
 
 ## Built-in model
 

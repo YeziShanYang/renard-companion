@@ -1,5 +1,10 @@
 # Project Brief: Renard 🦊
 
+> This is the original design brief from November 2026, kept for reference.
+> Renard has since changed in places (it also supports Gemini and a built-in
+> Gemma model, and the fox wanders the side margins instead of tucking against
+> the edge). The [README](../README.md) describes the extension as it is now.
+
 ## Overview
 
 **Renard** (French for "fox") is a cute pixel-art fox that lives at the edge of the browser window on **claude.ai** and **chatgpt.com**. It idles, wanders, naps, and reacts with pre-written lines and animations. Click it, type a question, and it fetches an answer from the user's own AI provider (Anthropic or OpenAI) and shows it in a large, readable answer box. It can optionally read the current conversation on the page, so questions like "summarize this chat" work.
