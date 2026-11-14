@@ -38,6 +38,9 @@ let current = null; // { key, dtype, run, dispose }
 let loading = null; // { key, promise }
 let unloadTimer = 0;
 let active = null; // stopper of the generation in progress
+// Generations run one at a time, in arrival order: a question from a second
+// tab waits for the first answer instead of cutting it off.
+let turn = Promise.resolve();
 
 export async function gpuStatus() {
   if (!globalThis.navigator || !navigator.gpu) return { ok: false, reason: 'This browser has no WebGPU here.' };
@@ -186,30 +189,38 @@ export async function handle(type, msg, emit, signal) {
 
     case 'generate': {
       emit({ type: 'loading' });
-      const c = await load(msg.key, emit);
-      if (signal && signal.aborted) return { stopped: true };
-      emit({ type: 'thinking' });
-      if (active) active.interrupt();
-      const stopper = new InterruptableStoppingCriteria();
-      active = stopper;
-      const onAbort = () => stopper.interrupt();
-      if (signal) signal.addEventListener('abort', onAbort);
+      const before = turn;
+      let done;
+      turn = new Promise((resolve) => (done = resolve));
       try {
-        await c.run({
-          system: msg.system,
-          user: msg.user,
-          maxNewTokens: msg.maxNewTokens || 1024,
-          stopper,
-          onDelta: (text) => {
-            if (text) emit({ type: 'delta', text });
-          },
-        });
+        await before;
+        if (signal && signal.aborted) return { stopped: true };
+        const c = await load(msg.key, emit);
+        if (signal && signal.aborted) return { stopped: true };
+        emit({ type: 'thinking' });
+        const stopper = new InterruptableStoppingCriteria();
+        active = stopper;
+        const onAbort = () => stopper.interrupt();
+        if (signal) signal.addEventListener('abort', onAbort);
+        try {
+          await c.run({
+            system: msg.system,
+            user: msg.user,
+            maxNewTokens: msg.maxNewTokens || 1024,
+            stopper,
+            onDelta: (text) => {
+              if (text) emit({ type: 'delta', text });
+            },
+          });
+        } finally {
+          if (signal) signal.removeEventListener('abort', onAbort);
+          if (active === stopper) active = null;
+          scheduleUnload();
+        }
+        return { stopped: Boolean(signal && signal.aborted) };
       } finally {
-        if (signal) signal.removeEventListener('abort', onAbort);
-        if (active === stopper) active = null;
-        scheduleUnload();
+        done();
       }
-      return { stopped: Boolean(signal && signal.aborted) };
     }
 
     case 'remove': {
