@@ -246,9 +246,13 @@ ext.commands.onCommand.addListener(async (command, tab) => {
   if (tabId != null) ext.tabs.sendMessage(tabId, { type: 'renard:command', command }).catch(() => {});
 });
 
-ext.runtime.onInstalled.addListener((details) => {
-  if (details.reason === 'install') ext.runtime.openOptionsPage();
+ext.runtime.onInstalled.addListener(async (details) => {
   updateBadge().catch(() => {});
+  if (details.reason !== 'install') return;
+  // First run only: open settings when no key is saved yet, so reinstalling
+  // during development doesn't open another settings tab each time.
+  const s = await loadSettings();
+  if (!Object.values(s.apiKeys).some(Boolean)) ext.runtime.openOptionsPage();
 });
 
 updateBadge().catch(() => {});
