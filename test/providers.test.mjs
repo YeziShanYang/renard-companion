@@ -4,6 +4,7 @@ import {
   SSEParser,
   classifyHttpError,
   isOpenAIChatModel,
+  isGeminiChatModel,
   streamAnswer,
   listModels,
   ProviderError,
@@ -213,4 +214,123 @@ test('listModels: Anthropic pagination and capability mapping', async () => {
 test('listModels: invalid key surfaces as keyInvalid', async () => {
   globalThis.fetch = async () => json(401, { error: { type: 'authentication_error', message: 'invalid x-api-key' } });
   await assert.rejects(listModels('anthropic', 'bad'), (e) => e.kind === 'keyInvalid' && e.status === 401);
+});
+
+// ---- Gemini ------------------------------------------------------------------
+
+const gem = (name, extra = {}) => ({ name: `models/${name}`, supportedGenerationMethods: ['generateContent', 'countTokens'], ...extra });
+
+test('Gemini model filter keeps text-generation Gemini models only', () => {
+  for (const name of ['gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-4-hydrogen']) assert.ok(isGeminiChatModel(gem(name)), name);
+  for (const name of ['gemini-embedding-001', 'gemini-2.5-flash-image', 'gemini-2.5-flash-preview-tts', 'gemini-live-2.5-flash', 'gemma-3-27b-it', 'imagen-4.0-generate-001'])
+    assert.ok(!isGeminiChatModel(gem(name)), name);
+  assert.ok(!isGeminiChatModel({ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['embedContent'] }));
+});
+
+test('listModels: Gemini pagination, header auth, newest family first', async () => {
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const u = new URL(url);
+    calls.push({ u, headers: init.headers });
+    if (!u.searchParams.get('pageToken')) {
+      return json(200, {
+        models: [
+          gem('gemini-2.5-flash', { displayName: 'Gemini 2.5 Flash', outputTokenLimit: 65536, thinking: true }),
+          gem('gemini-embedding-001'),
+          gem('gemini-2.0-flash', { displayName: 'Gemini 2.0 Flash', outputTokenLimit: 8192 }),
+        ],
+        nextPageToken: 'p2',
+      });
+    }
+    return json(200, { models: [gem('gemini-3.5-flash', { displayName: 'Gemini 3.5 Flash', outputTokenLimit: 65536, thinking: true })] });
+  };
+  const list = await listModels('gemini', 'g-key');
+  assert.deepEqual(list, [
+    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', maxTokens: 65536, effortLow: true },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', maxTokens: 65536, effortLow: true },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', maxTokens: 8192, effortLow: false },
+  ]);
+  assert.equal(calls[0].u.pathname, '/v1beta/models');
+  assert.equal(calls[0].headers['x-goog-api-key'], 'g-key');
+  assert.equal(calls[0].u.searchParams.get('key'), null);
+  assert.equal(calls[1].u.searchParams.get('pageToken'), 'p2');
+});
+
+test('Gemini stream: text deltas, thought parts skipped, request shape', async () => {
+  let sent;
+  globalThis.fetch = async (url, init) => {
+    sent = { url: new URL(url), init, body: JSON.parse(init.body) };
+    return sse([
+      'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"plan","thought":true}]}}]}\r\n\r\n',
+      'data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hel"}]}}]}\r\n\r\ndata: {"candidates":[{"content":{"ro',
+      'le":"model","parts":[{"text":"lo"}]},"finishReason":"STOP"}],"usageMetadata":{}}\r\n\r\n',
+    ]);
+  };
+  let out = '';
+  const r = await streamAnswer('gemini', {
+    apiKey: 'g-key',
+    model: { id: 'gemini-3.5-flash', effortLow: true },
+    system: 'sys',
+    user: 'hi',
+    onDelta: (t) => (out += t),
+  });
+  assert.equal(out, 'Hello');
+  assert.equal(r.stopReason, 'end_turn');
+  assert.equal(sent.url.pathname, '/v1beta/models/gemini-3.5-flash:streamGenerateContent');
+  assert.equal(sent.url.searchParams.get('alt'), 'sse');
+  assert.equal(sent.init.headers['x-goog-api-key'], 'g-key');
+  assert.deepEqual(sent.body.systemInstruction, { parts: [{ text: 'sys' }] });
+  assert.deepEqual(sent.body.contents, [{ role: 'user', parts: [{ text: 'hi' }] }]);
+  assert.deepEqual(sent.body.generationConfig, { thinkingConfig: { thinkingLevel: 'low' } });
+});
+
+test('Gemini: non-thinking models get no thinking config; unsupported level retries without it', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    if (body.generationConfig) return json(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Thinking level is not supported for this model.' } });
+    return sse(['data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n']);
+  };
+  let out = '';
+  await streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-2.0-flash', effortLow: false }, system: '', user: 'q', onDelta: (t) => (out += t) });
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].generationConfig, undefined);
+  await streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-x', effortLow: true }, system: '', user: 'q', onDelta: (t) => (out += t) });
+  assert.equal(bodies.length, 3);
+  assert.equal(bodies[2].generationConfig, undefined);
+  assert.equal(out, 'okok');
+});
+
+test('Gemini: blocked prompts and responses are refusals', async () => {
+  globalThis.fetch = async () => sse(['data: {"promptFeedback":{"blockReason":"SAFETY"}}\n\n']);
+  await assert.rejects(
+    streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-2.5-flash' }, system: '', user: 'q', onDelta() {} }),
+    (e) => e.kind === 'refused',
+  );
+  globalThis.fetch = async () => sse(['data: {"candidates":[{"content":{"parts":[{"text":"par"}]},"finishReason":"SAFETY"}]}\n\n']);
+  await assert.rejects(
+    streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-2.5-flash' }, system: '', user: 'q', onDelta() {} }),
+    (e) => e.kind === 'refused',
+  );
+});
+
+test('Gemini: bad key, quota, and stream errors map to Renard states', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return json(400, { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'API key not valid. Please pass a valid API key.' } });
+  };
+  await assert.rejects(
+    streamAnswer('gemini', { apiKey: 'bad', model: { id: 'gemini-2.5-flash', effortLow: true }, system: '', user: 'q', onDelta() {} }),
+    (e) => e.kind === 'keyInvalid',
+  );
+  assert.equal(calls, 1, 'a bad key is not retried');
+  globalThis.fetch = async () => json(429, { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'You exceeded your current quota.' } });
+  await assert.rejects(listModels('gemini', 'k'), (e) => e.kind === 'rateLimited');
+  globalThis.fetch = async () => sse(['data: {"error":{"code":503,"status":"UNAVAILABLE","message":"The model is overloaded."}}\n\n']);
+  await assert.rejects(
+    streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-2.5-flash' }, system: '', user: 'q', onDelta() {} }),
+    (e) => e.kind === 'network' && e.message === 'The model is overloaded.',
+  );
 });

@@ -1,10 +1,15 @@
-// Anthropic and OpenAI clients over plain fetch: model listing and streamed
-// answers. Used by the background script (answers) and the options page
-// (model list, which doubles as the key check).
+// Anthropic, OpenAI, and Gemini clients over plain fetch: model listing and
+// streamed answers. Used by the background script (answers) and the options
+// page (model list, which doubles as the key check).
 
 export const ANTHROPIC_VERSION = '2026-10-21';
 const ANTHROPIC_BASE = 'https://api.anthropic.com';
 const OPENAI_BASE = 'https://api.openai.com';
+const GEMINI_BASE = 'https://generativelanguage.googleapis.com';
+
+// Gemini finish reasons that mean the output was blocked; partial text from
+// such a response is discarded like any other refusal.
+const GEMINI_BLOCKED = new Set(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII']);
 
 // Models that accept server-side refusal fallbacks. When their safety
 // classifiers decline a request, the API retries it on the model Anthropic
@@ -40,20 +45,45 @@ export function classifyHttpError(status, body) {
   if (status === 401 || status === 402 || status === 403) return 'keyInvalid';
   if (status === 404) return 'modelUnavailable';
   if (status === 429) return code === 'insufficient_quota' ? 'keyInvalid' : 'rateLimited';
-  if (status === 400 && /credit balance|billing|quota/i.test(message)) return 'keyInvalid';
-  if (status === 400 && /model/i.test(message) && /not found|does not exist|not supported|invalid model/i.test(message)) {
+  // Gemini reports a bad key as 400 INVALID_ARGUMENT ("API key not valid").
+  if (status === 400 && /credit balance|billing|quota|api key/i.test(message)) return 'keyInvalid';
+  // Only a missing model; "X is not supported for this model" is about an
+  // optional field and is handled by the retry in sendWithOptional.
+  if (status === 400 && /model/i.test(message) && /not found|does not exist|invalid model/i.test(message)) {
     return 'modelUnavailable';
   }
   if (status >= 500) return 'network';
   return 'unknown';
 }
 
+// Error types from mid-stream error events: Anthropic `type`, OpenAI `code`,
+// and Gemini (Google RPC) `status`.
 function classifyStreamError(type) {
-  if (type === 'rate_limit_error' || type === 'rate_limit_exceeded') return 'rateLimited';
-  if (type === 'overloaded_error' || type === 'api_error' || type === 'server_error') return 'network';
-  if (type === 'authentication_error' || type === 'permission_error' || type === 'insufficient_quota') return 'keyInvalid';
-  if (type === 'not_found_error' || type === 'model_not_found') return 'modelUnavailable';
-  return 'unknown';
+  switch (type) {
+    case 'rate_limit_error':
+    case 'rate_limit_exceeded':
+    case 'RESOURCE_EXHAUSTED':
+      return 'rateLimited';
+    case 'overloaded_error':
+    case 'api_error':
+    case 'server_error':
+    case 'UNAVAILABLE':
+    case 'INTERNAL':
+    case 'DEADLINE_EXCEEDED':
+      return 'network';
+    case 'authentication_error':
+    case 'permission_error':
+    case 'insufficient_quota':
+    case 'UNAUTHENTICATED':
+    case 'PERMISSION_DENIED':
+      return 'keyInvalid';
+    case 'not_found_error':
+    case 'model_not_found':
+    case 'NOT_FOUND':
+      return 'modelUnavailable';
+    default:
+      return 'unknown';
+  }
 }
 
 // Incremental Server-Sent Events parser. push() returns complete events.
@@ -160,7 +190,7 @@ async function sendWithOptional(send, optional) {
   try {
     return await send(optional);
   } catch (err) {
-    if (err instanceof ProviderError && err.kind === 'unknown' && err.status === 400 && Object.keys(optional).length) {
+    if (err instanceof ProviderError && err.status === 400 && err.kind !== 'keyInvalid' && Object.keys(optional).length) {
       return send({});
     }
     throw err;
@@ -191,6 +221,25 @@ export function isOpenAIChatModel(id) {
 
 function isOpenAIReasoningModel(id) {
   return /^(o\d|gpt-5)/i.test(id) && !/chat/i.test(id);
+}
+
+function geminiHeaders(apiKey) {
+  // The key goes in a header, not the ?key= query parameter, so it stays out
+  // of URLs.
+  return { 'x-goog-api-key': apiKey, 'content-type': 'application/json' };
+}
+
+const GEMINI_EXCLUDE = /(embedding|image|tts|audio|live|robotics|computer-use|veo|imagen|aqa)/i;
+
+// Text-generation Gemini models, from a Models API entry.
+export function isGeminiChatModel(m) {
+  const id = String((m && m.name) || '').replace(/^models\//, '');
+  return /^gemini-/i.test(id) && !GEMINI_EXCLUDE.test(id) && ((m && m.supportedGenerationMethods) || []).includes('generateContent');
+}
+
+function geminiVersion(id) {
+  const m = id.match(/^gemini-(\d+(?:\.\d+)?)/i);
+  return m ? parseFloat(m[1]) : 0;
 }
 
 export async function listModels(provider, apiKey, { signal } = {}) {
@@ -224,6 +273,35 @@ export async function listModels(provider, apiKey, { signal } = {}) {
       .filter((m) => isOpenAIChatModel(m.id))
       .sort((a, b) => (b.created || 0) - (a.created || 0))
       .map((m) => ({ id: m.id, name: m.id, maxTokens: null, effortLow: false }));
+  }
+  if (provider === 'gemini') {
+    const models = [];
+    let token = null;
+    for (let page = 0; page < 10; page++) {
+      const url = new URL('/v1beta/models', GEMINI_BASE);
+      url.searchParams.set('pageSize', '1000');
+      if (token) url.searchParams.set('pageToken', token);
+      const res = await request(url, { headers: geminiHeaders(apiKey), signal });
+      const body = await res.json();
+      for (const m of body.models || []) {
+        if (!isGeminiChatModel(m)) continue;
+        const id = m.name.replace(/^models\//, '');
+        models.push({
+          id,
+          name: m.displayName || id,
+          maxTokens: Number(m.outputTokenLimit) || null,
+          effortLow: m.thinking === true,
+        });
+      }
+      if (!body.nextPageToken) break;
+      token = body.nextPageToken;
+    }
+    // Newest family first (gemini-4 before gemini-3.5 before gemini-2.5);
+    // within a family, keep the API's order.
+    return models
+      .map((m, i) => ({ m, i }))
+      .sort((a, b) => geminiVersion(b.m.id) - geminiVersion(a.m.id) || a.i - b.i)
+      .map((x) => x.m);
   }
   throw new ProviderError('unknown', `Unknown provider: ${provider}`);
 }
@@ -322,11 +400,48 @@ async function streamOpenAI({ apiKey, model, system, user, signal, onDelta }) {
   return { stopReason };
 }
 
+async function streamGemini({ apiKey, model, system, user, signal, onDelta }) {
+  const base = {
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: 'user', parts: [{ text: user }] }],
+  };
+  const optional = {};
+  if (model.effortLow) optional.generationConfig = { thinkingConfig: { thinkingLevel: 'low' } };
+
+  const url = new URL(`/v1beta/models/${encodeURIComponent(model.id)}:streamGenerateContent`, GEMINI_BASE);
+  url.searchParams.set('alt', 'sse');
+  const res = await sendWithOptional(
+    (opts) => request(url, { method: 'POST', headers: geminiHeaders(apiKey), body: JSON.stringify({ ...base, ...opts }), signal }),
+    optional,
+  );
+
+  let finish = null;
+  for await (const ev of readEvents(res)) {
+    const data = parseData(ev);
+    if (!data) continue;
+    if (data.error) {
+      throw new ProviderError(classifyStreamError(data.error.status), data.error.message || 'Stream error');
+    }
+    if (data.promptFeedback && data.promptFeedback.blockReason) {
+      throw new ProviderError('refused', `The request was blocked (${data.promptFeedback.blockReason}).`);
+    }
+    const candidate = data.candidates && data.candidates[0];
+    if (!candidate) continue;
+    for (const part of (candidate.content && candidate.content.parts) || []) {
+      if (part.text && !part.thought) onDelta(part.text);
+    }
+    if (candidate.finishReason) finish = candidate.finishReason;
+  }
+  if (GEMINI_BLOCKED.has(finish)) throw new ProviderError('refused', `The response was blocked (${finish}).`);
+  return { stopReason: finish === 'STOP' ? 'end_turn' : finish ? finish.toLowerCase() : null };
+}
+
 export async function streamAnswer(provider, params) {
   if (!params.apiKey) throw new ProviderError('keyMissing', 'No API key');
   try {
     if (provider === 'anthropic') return await streamAnthropic(params);
     if (provider === 'openai') return await streamOpenAI(params);
+    if (provider === 'gemini') return await streamGemini(params);
   } catch (err) {
     throw toProviderError(err);
   }

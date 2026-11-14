@@ -17,6 +17,7 @@
   R.PROVIDERS = {
     anthropic: { id: 'anthropic', name: 'Anthropic', origins: ['https://api.anthropic.com/*'] },
     openai: { id: 'openai', name: 'OpenAI', origins: ['https://api.openai.com/*'] },
+    gemini: { id: 'gemini', name: 'Gemini', origins: ['https://generativelanguage.googleapis.com/*'] },
   };
 
   R.siteForHost = function (hostname) {
@@ -30,9 +31,10 @@
   // background script and options page ever read.
   R.DEFAULTS = {
     provider: 'anthropic',
-    apiKeys: { anthropic: '', openai: '' },
-    // Selected model per provider: { id, name, maxTokens, effortLow }
-    models: { anthropic: null, openai: null },
+    apiKeys: { anthropic: '', openai: '', gemini: '' },
+    // Selected model per provider: { id, name, maxTokens, effortLow }, where
+    // effortLow means the model accepts a low effort / thinking level.
+    models: { anthropic: null, openai: null, gemini: null },
     sites: { claude: true, chatgpt: true },
     prefs: { readChat: true, readableText: false, sound: false },
     bubble: { width: 420, height: 0, expanded: false },
