@@ -6,7 +6,9 @@ import { handle } from './engine.js';
 const ext = globalThis.browser ?? globalThis.chrome;
 
 ext.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'renard:engine') return;
+  // Only the background service worker: content scripts and the settings tab
+  // have a sender tab.
+  if (port.name !== 'renard:engine' || port.sender?.id !== ext.runtime.id || port.sender.tab) return;
   const controller = new AbortController();
   let open = true;
   const post = (m) => {

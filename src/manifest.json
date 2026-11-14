@@ -26,9 +26,9 @@
     "scripts": ["background/background.js"],
     "type": "module"
   },
-  "permissions": ["storage", "unlimitedStorage"],
+  "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab"],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://huggingface.co https://*.huggingface.co https://*.hf.co; object-src 'none'; base-uri 'none'; form-action 'none'"
   },
   "host_permissions": [
     "https://claude.ai/*",
@@ -38,6 +38,7 @@
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
+  "optional_host_permissions": ["https://*/*"],
   "content_scripts": [
     {
       "matches": ["https://claude.ai/*", "https://chatgpt.com/*", "https://chat.openai.com/*"],
@@ -51,6 +52,7 @@
         "content/adapters/common.js",
         "content/adapters/claude.js",
         "content/adapters/chatgpt.js",
+        "content/adapters/web.js",
         "content/fox.js",
         "content/bubble.js",
         "content/app.js",

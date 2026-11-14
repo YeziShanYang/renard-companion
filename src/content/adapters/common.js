@@ -70,6 +70,19 @@
       return out;
     },
 
+    // The most recent turns within a generous budget, so a huge chat never
+    // makes a huge message (the background trims to its real limit).
+    capTurns(turns, maxChars = 200000) {
+      const out = [];
+      let used = 0;
+      for (let i = turns.length - 1; i >= 0 && used < maxChars; i--) {
+        const text = turns[i].text.slice(-(maxChars - used));
+        used += text.length;
+        out.unshift({ role: turns[i].role, text });
+      }
+      return out;
+    },
+
     visibleRect(el) {
       if (!el) return null;
       const r = el.getBoundingClientRect();

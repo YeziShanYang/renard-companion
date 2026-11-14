@@ -19,19 +19,31 @@
         </div>
       </header>
 
-      <div class="row popup-row">
-        <div class="row-text">
-          <span class="row-title" id="spawn-label">Show Renard</span>
-          <span class="hint" id="spawn-hint">On claude.ai and ChatGPT</span>
-        </div>
-        <label class="switch"
-          ><input type="checkbox" role="switch" id="spawned" aria-labelledby="spawn-label" aria-describedby="spawn-hint" /><span
-            class="switch-track"
-            ><span class="switch-thumb"></span></span
-        ></label>
-      </div>
+      <ul class="popup-rows">
+        <li class="row popup-row">
+          <div class="row-text">
+            <span class="row-title" id="spawn-label">Show Renard</span>
+            <span class="hint">Everywhere it's turned on</span>
+          </div>
+          <label class="switch"
+            ><input type="checkbox" role="switch" id="spawned" aria-labelledby="spawn-label" /><span class="switch-track"
+              ><span class="switch-thumb"></span></span
+          ></label>
+        </li>
+        <li class="row popup-row" id="site-row" hidden>
+          <div class="row-text">
+            <span class="row-title" id="site-label">On this site</span>
+            <span class="hint popup-host" id="site-host"></span>
+          </div>
+          <label class="switch"
+            ><input type="checkbox" role="switch" id="site-on" aria-labelledby="site-label" aria-describedby="site-host" /><span
+              class="switch-track"
+              ><span class="switch-thumb"></span></span
+          ></label>
+        </li>
+      </ul>
 
-      <p class="popup-note" id="note" hidden></p>
+      <p class="popup-note" id="note" role="status" hidden></p>
 
       <button class="btn btn-primary popup-settings" type="button" id="open-settings">Open settings</button>
     </main>

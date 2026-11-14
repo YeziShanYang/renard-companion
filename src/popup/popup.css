@@ -35,6 +35,18 @@ body {
   line-height: 1.35;
 }
 
+.popup-rows {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.popup-host {
+  overflow-wrap: anywhere;
+}
+
 .popup-row {
   padding: 12px 14px;
   background: var(--paper);

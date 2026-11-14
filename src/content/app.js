@@ -40,6 +40,13 @@
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // Provider error text shown on the page, minus anything shaped like a key.
+  function scrubError(text) {
+    return String(text)
+      .replace(/\b(sk-[\w*.-]{4,}|AIza[\w-]{8,}|[A-Za-z0-9_-]{32,})/g, '[hidden]')
+      .slice(0, 300);
+  }
+
   function attempt(fn, fallback = null) {
     try {
       return fn();
@@ -81,10 +88,9 @@
 
       this.host = document.createElement('renard-companion');
       this.shadow = this.host.attachShadow({ mode: 'closed' });
-      const style = document.createElement('style');
-      style.textContent = this.assets.css;
       this.root = R.h('div', { class: 'renard-root', 'data-theme': 'light' });
-      this.shadow.append(style, this.root);
+      this.shadow.append(this.root);
+      this.applyStyles();
 
       this.fox = new R.Fox({
         sheet,
@@ -110,6 +116,7 @@
       for (const stray of document.querySelectorAll('renard-companion')) stray.remove();
       document.documentElement.append(this.host);
 
+      if (this.adapter.kind === 'page') this.bubble.setReadLabel('Read page', "Include this page's text with your question");
       this.bindEvents();
       this.updateTheme();
       this.applyState(this.state);
@@ -131,6 +138,23 @@
       this.fox.cancelMotion();
       this.fox.sprite.stop();
       this.host.remove();
+    }
+
+    // A constructed stylesheet is immune to the page's Content Security
+    // Policy (some sites forbid inline styles). Firefox content scripts can't
+    // adopt one into the page's shadow root, so they use a <style> element.
+    applyStyles() {
+      try {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(this.assets.css);
+        this.shadow.adoptedStyleSheets = [sheet];
+        if (this.shadow.adoptedStyleSheets.length === 1) return;
+      } catch {
+        // fall through
+      }
+      const style = document.createElement('style');
+      style.textContent = this.assets.css;
+      this.shadow.prepend(style);
     }
 
     async loadFonts() {
@@ -181,7 +205,8 @@
       // (see keys.js). Capture phase, so the site's own handlers and text
       // fields don't see the key first.
       this.onKeyDown = (e) => {
-        if (e.repeat || e.isComposing) return;
+        // Only real key presses: a page can dispatch synthetic ones.
+        if (!e.isTrusted || e.repeat || e.isComposing) return;
         for (const [cmd, shortcut] of Object.entries(this.shortcuts)) {
           if (R.matchesShortcut(e, shortcut)) {
             e.preventDefault();
@@ -793,15 +818,23 @@
       clearTimeout(this.timers.sleep);
 
       let chat = null;
+      let page = null;
       let chatFailed = false;
       if (this.bubble.readChat.checked) {
         try {
-          const turns = this.adapter.readChat();
-          if (turns.length) chat = { siteName: this.site.name, turns };
+          if (this.adapter.kind === 'page') {
+            page = this.adapter.readPage();
+            if (!page.text) throw new Error('No text on this page');
+          } else {
+            const turns = R.adapterUtils.capTurns(this.adapter.readChat());
+            if (turns.length) chat = { siteName: this.site.name, turns };
+          }
         } catch {
           chatFailed = true;
+          page = null;
         }
       }
+      const reading = this.adapter.kind === 'page' ? 'page' : 'chat';
 
       this.last = { question };
       this.bubble.startAnswer(question);
@@ -809,8 +842,12 @@
       // user has placed the bubble by hand.
       if (!this.freePlaced) this.placeBubble();
       if (chatFailed) {
-        this.bubble.setLine(this.line('chatUnreadable'), { onChar: this.blip });
-        this.bubble.setNote("Couldn't read the chat on this page, so this answer doesn't use it.");
+        this.bubble.setLine(this.line(reading === 'page' ? 'pageUnreadable' : 'chatUnreadable'), { onChar: this.blip });
+        this.bubble.setNote(
+          reading === 'page'
+            ? "Couldn't find any text on this page, so this answer doesn't use it."
+            : "Couldn't read the chat on this page, so this answer doesn't use it.",
+        );
         this.react('startled', () => this.think());
       } else {
         this.bubble.setLine(this.line('thinking'), { onChar: this.blip });
@@ -847,7 +884,8 @@
           // The built-in model is loading; say so unless text already came.
           if (!text) this.bubble.setLine(this.line('localLoading'), { onChar: this.blip });
         } else if (m.type === 'context') {
-          if (m.partial) this.bubble.setNote(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
+          if (m.page && m.partial) this.bubble.setNote(`Read the first part of this page (${m.included} of ${m.total} characters).`);
+          else if (m.partial) this.bubble.setNote(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
         } else if (m.type === 'delta') {
           text += m.text;
           this.bubble.setAnswer(text, { streaming: true });
@@ -865,7 +903,12 @@
         this.port = null;
         this.failed({ kind: 'network', message: 'Lost the connection to the extension. Try again.' }, text);
       });
-      port.postMessage({ type: 'ask', question, chat });
+      try {
+        port.postMessage({ type: 'ask', question, chat, page });
+      } catch {
+        release();
+        this.failed({ kind: 'network', message: 'Renard was updated. Reload the page to keep going.' }, '');
+      }
     }
 
     answered(text) {
@@ -902,11 +945,16 @@
           return '';
         case 'rateLimited':
           return `${p} is rate limiting requests right now.`;
+        case 'keyInvalid':
+          // Fixed text: some providers echo part of the key in their message.
+          return `${p} didn't accept the API key. Check it in settings.`;
+        case 'modelUnavailable':
+          return `That model isn't available for this ${p} key. Pick another in settings.`;
         case 'localMissing':
         case 'noGpu':
           return m.message;
         default:
-          return m.message ? `${p}: ${m.message}` : '';
+          return m.message ? `${p}: ${scrubError(m.message)}` : '';
       }
     }
 

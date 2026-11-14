@@ -210,7 +210,7 @@ function renderLocal() {
   const list = $('local-models');
   list.replaceChildren(
     ...Object.values(R.LOCAL_MODELS).map((m) => {
-      const ready = lm.ready[m.id];
+      const ready = R.localReady(lm, m);
       const label = document.createElement('label');
       label.className = 'model-choice';
       const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'local-model', value: m.id, checked: lm.key === m.id });
@@ -234,7 +234,7 @@ function renderLocal() {
   );
 
   const selected = R.LOCAL_MODELS[lm.key] || R.LOCAL_MODELS['gemma-3-1b'];
-  const ready = lm.ready[selected.id];
+  const ready = R.localReady(lm, selected);
   const busy = Boolean(downloadPort);
   $('local-download').hidden = Boolean(ready);
   $('local-download').textContent = `Download ${selected.name} (${formatBytes(selected.sizes[dtype])})`;
@@ -379,6 +379,29 @@ async function renderSites() {
     li.append(text, actions);
     list.append(li);
   }
+  // Websites added from the toolbar popup.
+  for (const host of settings.otherSites) {
+    const li = document.createElement('li');
+    li.className = 'row';
+    const text = document.createElement('div');
+    text.className = 'row-text';
+    text.append(
+      Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }),
+      Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Added from the toolbar. Read chat reads the page here.' }),
+    );
+    const remove = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Remove' });
+    remove.setAttribute('aria-label', `Remove ${host}`);
+    remove.addEventListener('click', async () => {
+      await save({ otherSites: settings.otherSites.filter((h) => h !== host) });
+      await ext.permissions.remove({ origins: [R.originFor(host)] }).catch(() => {});
+      renderSites();
+    });
+    const actions = document.createElement('div');
+    actions.className = 'row-actions';
+    actions.append(remove);
+    li.append(text, actions);
+    list.append(li);
+  }
 }
 
 async function renderAccess() {
@@ -484,6 +507,12 @@ async function init() {
   ext.permissions.onRemoved.addListener(() => {
     renderSites();
     renderAccess();
+  });
+  // Sites added or removed from the toolbar popup while this page is open.
+  ext.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.otherSites) return;
+    settings.otherSites = changes.otherSites.newValue || [];
+    renderSites();
   });
 }
 

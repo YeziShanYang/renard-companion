@@ -17,6 +17,7 @@
   "modelUnavailable": ["That model isn't available. Pick another?"],
   "networkError": ["Something went wrong. Try again in a moment?"],
   "chatUnreadable": ["I couldn't read this chat, but you can still ask me!"],
+  "pageUnreadable": ["I couldn't read this page, but you can still ask me!"],
   "refused": ["I can't help with that one."],
   "hidden": ["See you later!"],
   "dizzy": ["Okay, okay, I'm dizzy!"]

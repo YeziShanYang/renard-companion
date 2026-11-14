@@ -6,11 +6,14 @@
   R.booted = true;
 
   let site = R.siteForHost(location.hostname);
-  // Local fixture pages used in development (?renard-site=claude). The
-  // published manifest only injects on claude.ai and ChatGPT, so this branch
-  // never runs there.
+  // Local fixture pages used in development (?renard-site=claude).
   if (!site && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
     site = R.SITES[new URLSearchParams(location.search).get('renard-site')] || null;
+  }
+  // Anywhere else, this script runs only because the user added the site
+  // (registered from settings, or injected from the toolbar popup).
+  if (!site && location.protocol === 'https:' && R.isWebHost(location.hostname)) {
+    site = R.webSite(location.hostname);
   }
   if (!site || window.top !== window) return;
 
@@ -31,6 +34,9 @@
   document.dispatchEvent(new Event(REPLACE_EVENT));
   for (const el of document.querySelectorAll('renard-companion')) el.remove();
   document.addEventListener(REPLACE_EVENT, () => {
+    // Only a copy whose extension context is gone steps aside, so the page
+    // itself can't dispatch this event to switch a live Renard off.
+    if (R.contextAlive()) return;
     retired = true;
     if (app) {
       app.unmount();

@@ -4,7 +4,7 @@
 import '../shared/constants.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
-import { SYSTEM_PROMPT, trimChat, buildUserMessage } from '../shared/prompt.js';
+import { SYSTEM_PROMPT, trimChat, trimPage, buildUserMessage } from '../shared/prompt.js';
 
 const R = globalThis.Renard;
 
@@ -54,24 +54,44 @@ function loadAssets() {
 // ---------------------------------------------------------------------------
 // Public (key-free) state for a site.
 
-async function publicState(siteId) {
+// The site a content-script message comes from. An added website is known by
+// the sender's own address, not by anything the page's script claims.
+function siteFor(msg, sender) {
+  if (msg.site === 'web') {
+    let host = '';
+    try {
+      host = new URL(sender.url).hostname;
+    } catch {
+      // no usable sender address
+    }
+    if (!R.isWebHost(host)) throw new Error('Unknown site');
+    return R.webSite(host);
+  }
+  const site = R.own(R.SITES, msg.site);
+  if (!site) throw new Error('Unknown site');
+  return site;
+}
+
+async function publicState(site) {
   const s = await loadSettings();
+  const key = site.key || site.id;
+  const on = site.generic ? s.otherSites.includes(site.name) && (await hasOrigins(site.origins)) : s.sites[site.id] !== false;
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
-  const local = provider.id === 'local' ? R.LOCAL_MODELS[s.localModel.key] || R.LOCAL_MODELS['gemma-3-1b'] : null;
+  const local = provider.id === 'local' ? R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'] : null;
   const model = local || s.models[provider.id];
   return {
-    site: siteId,
+    site: site.id,
     spawned: s.spawned !== false,
-    enabled: s.spawned !== false && s.sites[siteId] !== false,
+    enabled: s.spawned !== false && on,
     provider: provider.id,
     providerName: provider.name,
     // For the built-in provider, "has a key" means the model is downloaded.
-    hasKey: local ? Boolean(s.localModel.ready[local.id]) : Boolean(s.apiKeys[provider.id]),
+    hasKey: local ? Boolean(R.localReady(s.localModel, local)) : Boolean(s.apiKeys[provider.id]),
     modelName: model ? model.name : null,
     apiPermission: await hasOrigins(provider.origins),
     prefs: s.prefs,
     bubble: s.bubble,
-    position: s.positions[siteId] || null,
+    position: s.positions[key] || null,
     shortcuts: await shortcutStrings(),
   };
 }
@@ -93,18 +113,16 @@ function clamp(n, min, max) {
 }
 
 const handlers = {
-  'renard:getState': (msg) => {
-    if (!R.SITES[msg.site]) throw new Error('Unknown site');
-    return publicState(msg.site);
-  },
+  'renard:getState': (msg, sender) => publicState(siteFor(msg, sender)),
 
   'renard:getAssets': () => loadAssets(),
 
-  'renard:savePosition': async (msg) => {
+  'renard:savePosition': async (msg, sender) => {
+    const site = siteFor(msg, sender);
     const p = msg.position || {};
-    if (!R.SITES[msg.site] || (p.edge !== 'left' && p.edge !== 'right')) throw new Error('Bad position');
+    if (p.edge !== 'left' && p.edge !== 'right') throw new Error('Bad position');
     const { positions } = await loadSettings();
-    positions[msg.site] = { edge: p.edge, y: clamp(Number(p.y) || 0, 0, 1) };
+    positions[site.key || site.id] = { edge: p.edge, y: clamp(Number(p.y) || 0, 0, 1) };
     await saveSettings({ positions });
     return { ok: true };
   },
@@ -128,14 +146,26 @@ const handlers = {
     return { ok: true };
   },
 
+  // From the toolbar popup or settings only, never from a page.
+  'renard:addSite': async (msg, sender) => {
+    if (!fromExtensionPage(sender)) throw new Error('Not allowed');
+    return addSite(msg.host);
+  },
+
+  'renard:removeSite': async (msg, sender) => {
+    if (!fromExtensionPage(sender)) throw new Error('Not allowed');
+    return removeSite(msg.host);
+  },
+
   'renard:openOptions': async () => {
     await ext.runtime.openOptionsPage();
     return { ok: true };
   },
 
   // Built-in model, from the settings page.
-  'renard:localRemove': async (msg) => {
-    if (!R.LOCAL_MODELS[msg.key]) throw new Error('Unknown model');
+  'renard:localRemove': async (msg, sender) => {
+    if (!fromSettings(sender)) throw new Error('Not allowed');
+    if (!R.own(R.LOCAL_MODELS, msg.key)) throw new Error('Unknown model');
     await engineRequest({ type: 'remove', key: msg.key });
     const { localModel } = await loadSettings();
     delete localModel.ready[msg.key];
@@ -205,17 +235,28 @@ async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
   });
 }
 
-async function answerLocally(s, msg, post, signal) {
-  const model = R.LOCAL_MODELS[s.localModel.key] || R.LOCAL_MODELS['gemma-3-1b'];
-  if (!s.localModel.ready[model.id]) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
+// The chat or page text sent with a question, trimmed to the budget. Tells
+// the page how much was included.
+function context(msg, post, limits = R.LIMITS) {
   let chat = null;
-  if (msg.chat && Array.isArray(msg.chat.turns)) {
-    chat = { ...trimChat(msg.chat.turns, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars }), siteName: msg.chat.siteName };
+  let page = null;
+  if (msg.page) {
+    page = trimPage(msg.page, limits.pageChars);
+    if (page) post({ type: 'context', page: true, included: page.text.length, total: page.total, partial: page.partial });
+  } else if (msg.chat && Array.isArray(msg.chat.turns)) {
+    chat = { ...trimChat(msg.chat.turns, limits), siteName: String(msg.chat.siteName || '').slice(0, 100) };
     post({ type: 'context', included: chat.turns.length, total: chat.total, partial: chat.partial });
   }
+  return { chat, page };
+}
+
+async function answerLocally(s, msg, post, signal) {
+  const model = R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'];
+  if (!R.localReady(s.localModel, model)) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
+  const { chat, page } = context(msg, post, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars, pageChars: R.LIMITS.localPageChars });
   const question = String(msg.question || '').slice(0, 20000);
   await engineRequest(
-    { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat), maxNewTokens: 1024 },
+    { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
     {
       signal,
       onEvent: (e) => {
@@ -228,7 +269,7 @@ async function answerLocally(s, msg, post, signal) {
 
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== ext.runtime.id) return false;
-  const handler = msg && handlers[msg.type];
+  const handler = msg && R.own(handlers, msg.type);
   if (!handler) return false;
   Promise.resolve()
     .then(() => handler(msg, sender))
@@ -244,7 +285,7 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function answer(msg, post, signal) {
   const s = await loadSettings();
-  const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
+  const provider = R.own(R.PROVIDERS, s.provider) || R.PROVIDERS.anthropic;
   if (provider.id === 'local') return answerLocally(s, msg, post, signal);
   const apiKey = s.apiKeys[provider.id];
   if (!apiKey) throw new ProviderError('keyMissing', 'No API key set');
@@ -260,18 +301,14 @@ async function answer(msg, post, signal) {
     await saveSettings({ models: { ...s.models, [provider.id]: model } });
   }
 
-  let chat = null;
-  if (msg.chat && Array.isArray(msg.chat.turns)) {
-    chat = { ...trimChat(msg.chat.turns), siteName: msg.chat.siteName };
-    post({ type: 'context', included: chat.turns.length, total: chat.total, partial: chat.partial });
-  }
+  const { chat, page } = context(msg, post);
 
   const question = String(msg.question || '').slice(0, 20000);
   await streamAnswer(provider.id, {
     apiKey,
     model,
     system: SYSTEM_PROMPT,
-    user: buildUserMessage(question, chat),
+    user: buildUserMessage(question, chat, page),
     signal,
     onDelta: (text) => post({ type: 'delta', text }),
   });
@@ -281,16 +318,21 @@ async function answer(msg, post, signal) {
 // The page pings over the port, which keeps Firefox's background page awake
 // through a long download.
 ext.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'renard:local' || port.sender?.id !== ext.runtime.id) return;
+  if (port.name !== 'renard:local' || port.sender?.id !== ext.runtime.id || !fromSettings(port.sender)) return;
   const controller = new AbortController();
   port.onDisconnect.addListener(() => controller.abort());
   port.onMessage.addListener(async (msg) => {
-    if (!msg || msg.type !== 'prepare' || !R.LOCAL_MODELS[msg.key]) return;
-    const model = R.LOCAL_MODELS[msg.key];
+    const model = msg && msg.type === 'prepare' && R.own(R.LOCAL_MODELS, msg.key);
+    if (!model) return;
     try {
       const result = await engineRequest({ type: 'prepare', key: model.id }, { signal: controller.signal, onEvent: (e) => port.postMessage(e) });
       const { localModel } = await loadSettings();
-      localModel.ready[model.id] = { dtype: result.dtype, bytes: result.bytes || model.sizes[result.dtype] || 0, at: Date.now() };
+      localModel.ready[model.id] = {
+        dtype: result.dtype,
+        bytes: result.bytes || model.sizes[result.dtype] || 0,
+        revision: model.revision,
+        at: Date.now(),
+      };
       await saveSettings({ localModel });
       port.postMessage({ type: 'ready', ...localModel.ready[model.id] });
     } catch (err) {
@@ -325,17 +367,118 @@ ext.runtime.onConnect.addListener((port) => {
 // ---------------------------------------------------------------------------
 // Keep open tabs in sync with settings, and flag missing site access.
 
+// Every tab, not just Renard's sites: a site that was just removed is no
+// longer in the list (and its access may be gone), but its fox still needs
+// to hear that it should leave. Tabs without Renard ignore the message.
 async function broadcastRefresh() {
-  const urls = Object.values(R.SITES).flatMap((s) => s.origins);
   let tabs = [];
   try {
-    tabs = await ext.tabs.query({ url: urls });
+    tabs = await ext.tabs.query({});
   } catch {
     return;
   }
   for (const tab of tabs) {
     ext.tabs.sendMessage(tab.id, { type: 'renard:refresh' }).catch(() => {});
   }
+}
+
+// ---------------------------------------------------------------------------
+// Added websites get the same content scripts, registered for their hosts.
+// Registrations are rebuilt at startup because Firefox drops them when the
+// extension updates.
+
+const SITE_SCRIPTS = 'renard-other-sites';
+let siteScripts = Promise.resolve();
+
+async function grantedOtherSites() {
+  const { otherSites } = await loadSettings(['otherSites']);
+  const out = [];
+  for (const host of otherSites) {
+    if (R.isWebHost(host) && (await hasOrigins([R.originFor(host)]))) out.push(host);
+  }
+  return out;
+}
+
+function syncSiteScripts() {
+  siteScripts = siteScripts
+    .then(async () => {
+      const matches = (await grantedOtherSites()).map(R.originFor).sort();
+      const [existing] = await ext.scripting.getRegisteredContentScripts({ ids: [SITE_SCRIPTS] });
+      if (existing && [...existing.matches].sort().join() === matches.join()) return;
+      if (existing) await ext.scripting.unregisterContentScripts({ ids: [SITE_SCRIPTS] });
+      if (!matches.length) return;
+      await ext.scripting.registerContentScripts([
+        { id: SITE_SCRIPTS, matches, js: ext.runtime.getManifest().content_scripts[0].js, runAt: 'document_idle' },
+      ]);
+    })
+    .catch((err) => console.warn('[Renard] site scripts:', err));
+  return siteScripts;
+}
+
+// Content scripts report the page's address; extension pages their own.
+function fromExtensionPage(sender) {
+  return typeof sender.url === 'string' && sender.url.startsWith(ext.runtime.getURL(''));
+}
+
+function fromSettings(sender) {
+  return typeof sender.url === 'string' && sender.url.startsWith(ext.runtime.getURL('options/'));
+}
+
+// Adds a website the user granted access to and brings Renard to its open
+// tabs right away (the registered script covers pages loaded later).
+const adding = new Map(); // host -> promise, so the popup and onAdded don't both inject
+
+function addSite(host) {
+  if (!adding.has(host)) adding.set(host, addSiteOnce(host).finally(() => adding.delete(host)));
+  return adding.get(host);
+}
+
+async function addSiteOnce(host) {
+  if (!R.isWebHost(host)) throw new Error('Renard cannot visit that site.');
+  const origin = R.originFor(host);
+  if (!(await hasOrigins([origin]))) throw new Error(`Renard needs access to ${host} first.`);
+  const { otherSites } = await loadSettings(['otherSites']);
+  if (!otherSites.includes(host)) await saveSettings({ otherSites: [...otherSites, host] });
+  await syncSiteScripts();
+  let tabs = [];
+  try {
+    tabs = await ext.tabs.query({ url: origin });
+  } catch {
+    // no matching tabs
+  }
+  const files = ext.runtime.getManifest().content_scripts[0].js;
+  let blocked = 0;
+  for (const t of tabs) {
+    // A page that already has Renard's script ignores a second copy.
+    await ext.scripting.executeScript({ target: { tabId: t.id }, files }).catch(() => blocked++);
+  }
+  return { added: host, tabs: tabs.length, blocked };
+}
+
+async function removeSite(host) {
+  const { otherSites } = await loadSettings(['otherSites']);
+  await saveSettings({ otherSites: otherSites.filter((h) => h !== host) });
+  if (R.isWebHost(host)) await ext.permissions.remove({ origins: [R.originFor(host)] }).catch(() => {});
+  return { removed: host };
+}
+
+// A single website granted from the popup's switch (or the browser's own
+// site-access controls) means "Renard here", so add it.
+function grantedWebHosts(permissions) {
+  const out = [];
+  for (const origin of (permissions && permissions.origins) || []) {
+    const m = /^https:\/\/([^/*]+)\/\*$/.exec(origin);
+    if (m && R.isWebHost(m[1])) out.push(m[1]);
+  }
+  return out;
+}
+
+// Access to an added site was revoked (in the browser's own settings, say):
+// forget the site, so the list only ever holds sites Renard can reach.
+async function pruneOtherSites() {
+  const { otherSites } = await loadSettings(['otherSites']);
+  const granted = await grantedOtherSites();
+  if (granted.length !== otherSites.length) await saveSettings({ otherSites: granted });
 }
 
 async function updateBadge() {
@@ -349,19 +492,24 @@ async function updateBadge() {
 
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'prefs', 'localModel'].some((k) => k in changes)) {
+  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'otherSites', 'prefs', 'localModel'].some((k) => k in changes)) {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }
+  if ('otherSites' in changes) syncSiteScripts();
 });
 
-ext.permissions.onAdded.addListener(() => {
+ext.permissions.onAdded.addListener((permissions) => {
   updateBadge().catch(() => {});
   broadcastRefresh();
+  for (const host of grantedWebHosts(permissions)) addSite(host).catch(() => {});
 });
 ext.permissions.onRemoved.addListener(() => {
   updateBadge().catch(() => {});
   broadcastRefresh();
+  pruneOtherSites()
+    .then(() => syncSiteScripts())
+    .catch(() => {});
 });
 
 ext.commands.onCommand.addListener(async (command, tab) => {
@@ -375,6 +523,7 @@ ext.commands.onCommand.addListener(async (command, tab) => {
 
 ext.runtime.onInstalled.addListener(async (details) => {
   updateBadge().catch(() => {});
+  syncSiteScripts();
   if (details.reason !== 'install') return;
   // First run only: open settings when no key is saved yet, so reinstalling
   // during development doesn't open another settings tab each time.
@@ -383,3 +532,13 @@ ext.runtime.onInstalled.addListener(async (details) => {
 });
 
 updateBadge().catch(() => {});
+syncSiteScripts();
+
+// No content script reads storage (they get key-free state by message).
+// Where the browser supports it, lock storage to extension pages so a
+// compromised site process can't ask for the keys either.
+try {
+  Promise.resolve(ext.storage.local.setAccessLevel?.({ accessLevel: 'TRUSTED_CONTEXTS' })).catch(() => {});
+} catch {
+  // not supported for this storage area
+}

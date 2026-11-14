@@ -87,7 +87,7 @@ async function load(key, emit) {
   clearTimeout(unloadTimer);
   if (current && current.key === key) return current;
   if (loading && loading.key === key) return loading.promise;
-  const model = R.LOCAL_MODELS[key];
+  const model = R.own(R.LOCAL_MODELS, key);
   if (!model) throw new EngineError('modelUnavailable', `Unknown built-in model: ${key}`);
   await unload();
 
@@ -96,13 +96,14 @@ async function load(key, emit) {
     if (!gpu.ok) throw new EngineError('noGpu', gpu.reason);
     const dtype = gpu.dtype;
     const progress_callback = progressReporter(model, dtype, emit);
+    const revision = model.revision;
     let run;
     let dispose;
 
     if (model.kind === 'gemma4') {
       // Gemma 4 is multimodal; Renard sends text only.
-      const processor = await AutoProcessor.from_pretrained(model.repo, { progress_callback });
-      const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { dtype, device: 'webgpu', progress_callback });
+      const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
+      const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
       run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
         const messages = [
           { role: 'system', content: [{ type: 'text', text: system }] },
@@ -115,7 +116,7 @@ async function load(key, emit) {
       };
       dispose = () => lm.dispose();
     } else {
-      const generator = await pipeline('text-generation', model.repo, { dtype, device: 'webgpu', progress_callback });
+      const generator = await pipeline('text-generation', model.repo, { revision, dtype, device: 'webgpu', progress_callback });
       run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
         const messages = [
           { role: 'system', content: system },
@@ -157,15 +158,25 @@ function scheduleUnload() {
   unloadTimer = setTimeout(() => unload(), UNLOAD_AFTER_MS);
 }
 
-// Cached files for a model: their URLs contain the model's repository path.
-async function cachedEntries(model) {
+// Cached files for a model: their URLs contain the repository path and, for
+// the pinned download, /resolve/<revision>/.
+async function cachedEntries(model, { current = false } = {}) {
   const cache = await caches.open(CACHE_NAME);
   const keys = await cache.keys();
-  return { cache, keys: keys.filter((req) => req.url.includes(`/${model.repo}/`)) };
+  const mark = current ? `/${model.repo}/resolve/${model.revision}/` : `/${model.repo}/`;
+  return { cache, keys: keys.filter((req) => req.url.includes(mark)) };
+}
+
+// Deletes files from other revisions (an older download) once the pinned
+// one is in place.
+async function pruneOtherRevisions(model) {
+  const { cache, keys } = await cachedEntries(model);
+  const mark = `/resolve/${model.revision}/`;
+  for (const req of keys) if (!req.url.includes(mark)) await cache.delete(req);
 }
 
 async function cachedBytes(model) {
-  const { cache, keys } = await cachedEntries(model);
+  const { cache, keys } = await cachedEntries(model, { current: true });
   let bytes = 0;
   for (const req of keys) {
     const res = await cache.match(req);
@@ -184,7 +195,9 @@ export async function handle(type, msg, emit, signal) {
     case 'prepare': {
       const c = await load(msg.key, emit);
       scheduleUnload();
-      return { dtype: c.dtype, bytes: await cachedBytes(R.LOCAL_MODELS[msg.key]) };
+      const model = R.LOCAL_MODELS[c.key];
+      await pruneOtherRevisions(model).catch(() => {});
+      return { dtype: c.dtype, bytes: await cachedBytes(model) };
     }
 
     case 'generate': {
@@ -204,9 +217,9 @@ export async function handle(type, msg, emit, signal) {
         if (signal) signal.addEventListener('abort', onAbort);
         try {
           await c.run({
-            system: msg.system,
-            user: msg.user,
-            maxNewTokens: msg.maxNewTokens || 1024,
+            system: String(msg.system || '').slice(0, 4000),
+            user: String(msg.user || '').slice(0, 200000),
+            maxNewTokens: Math.min(2048, Math.max(1, Math.round(Number(msg.maxNewTokens) || 1024))),
             stopper,
             onDelta: (text) => {
               if (text) emit({ type: 'delta', text });
@@ -224,7 +237,8 @@ export async function handle(type, msg, emit, signal) {
     }
 
     case 'remove': {
-      const model = R.LOCAL_MODELS[msg.key];
+      const model = R.own(R.LOCAL_MODELS, msg.key);
+      if (!model) throw new EngineError('modelUnavailable', 'Unknown built-in model');
       if (current && current.key === msg.key) await unload();
       const { cache, keys } = await cachedEntries(model);
       for (const req of keys) await cache.delete(req);

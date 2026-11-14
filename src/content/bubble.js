@@ -76,18 +76,19 @@
 
       this.readChat = h('input', { type: 'checkbox', role: 'switch', class: 'switch-input' });
       this.readChat.addEventListener('change', () => H.onReadChatChange(this.readChat.checked));
-      const readChatLabel = h('label', { class: 'switch', title: 'Include the chat on this page with your question' }, [
+      this.readLabelText = h('span', { class: 'switch-label' }, 'Read chat');
+      this.readLabel = h('label', { class: 'switch', title: 'Include the chat on this page with your question' }, [
         this.readChat,
         h('span', { class: 'switch-track', 'aria-hidden': 'true' }, [h('span', { class: 'switch-thumb' })]),
         R.icon('chat'),
-        h('span', { class: 'switch-label' }, 'Read chat'),
+        this.readLabelText,
       ]);
 
       this.sendLabel = h('span', {}, 'Ask');
       this.sendBtn = h('button', { type: 'submit', class: 'btn btn-primary send-btn' }, [R.icon('stop'), this.sendLabel]);
       this.form = h('form', { class: 'ask' }, [
         h('div', { class: 'input-box' }, [this.input, h('span', { class: 'block-caret', 'aria-hidden': 'true' })]),
-        h('div', { class: 'ask-row' }, [readChatLabel, this.sendBtn]),
+        h('div', { class: 'ask-row' }, [this.readLabel, this.sendBtn]),
       ]);
       this.form.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -215,6 +216,12 @@
 
     setReadChat(on) {
       this.readChat.checked = Boolean(on);
+    }
+
+    // "Read chat" on chat sites, "Read page" elsewhere.
+    setReadLabel(text, title) {
+      this.readLabelText.textContent = text;
+      this.readLabel.title = title;
     }
 
     setDraft(text) {
