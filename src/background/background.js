@@ -69,7 +69,20 @@ async function publicState(siteId) {
     prefs: s.prefs,
     bubble: s.bubble,
     position: s.positions[siteId] || null,
+    shortcuts: await shortcutStrings(),
   };
+}
+
+// Current bindings ("Alt+Shift+F"), which the user may have changed, so the
+// page can recognize them when a focused text field swallows the key.
+async function shortcutStrings() {
+  const out = {};
+  try {
+    for (const c of await ext.commands.getAll()) out[c.name] = c.shortcut || '';
+  } catch {
+    // commands API unavailable
+  }
+  return out;
 }
 
 function clamp(n, min, max) {

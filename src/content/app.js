@@ -63,6 +63,8 @@
       this.observers = [];
       this.lastHref = location.href;
       this.bubbleSize = { ...state.bubble };
+      this.shortcuts = {};
+      this.lastCommand = null;
     }
 
     // ---- setup ------------------------------------------------------------
@@ -117,6 +119,7 @@
       }
       for (const o of this.observers) o.disconnect();
       window.removeEventListener('resize', this.onResize);
+      window.removeEventListener('keydown', this.onKeyDown, true);
       this.colorScheme.removeEventListener('change', this.onSchemeChange);
       this.fox.cancelMotion();
       this.fox.sprite.stop();
@@ -166,6 +169,22 @@
           this.closeBubble(true);
         }
       });
+
+      // Renard's shortcuts, recognized in the page as well as by the browser
+      // (see keys.js). Capture phase, so the site's own handlers and text
+      // fields don't see the key first.
+      this.onKeyDown = (e) => {
+        if (e.repeat || e.isComposing) return;
+        for (const [cmd, shortcut] of Object.entries(this.shortcuts)) {
+          if (R.matchesShortcut(e, shortcut)) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.command(cmd, 'page');
+            return;
+          }
+        }
+      };
+      window.addEventListener('keydown', this.onKeyDown, true);
 
       let resizeQueued = false;
       this.onResize = () => {
@@ -235,6 +254,11 @@
       this.blipper.enabled = Boolean(state.prefs.sound);
       this.bubble.setReadChat(state.prefs.readChat);
       this.bubbleSize = { ...state.bubble };
+      this.shortcuts = {};
+      for (const [cmd, text] of Object.entries(state.shortcuts || {})) {
+        const parsed = R.parseShortcut(text);
+        if (parsed) this.shortcuts[cmd] = parsed;
+      }
       const blocked = this.blocker();
       if (this.bubble.isOpen) {
         this.bubble.setBlocked(blocked && blocked.detail);
@@ -504,7 +528,14 @@
       await this.enter();
     }
 
-    command(cmd) {
+    // source: 'browser' (extension command) or 'page' (key seen in the page).
+    // One key press can arrive both ways; the second within 600 ms is ignored
+    // so a shortcut never toggles twice.
+    command(cmd, source = 'browser') {
+      const now = performance.now();
+      const last = this.lastCommand;
+      if (last && last.cmd === cmd && last.source !== source && now - last.at < 600) return;
+      this.lastCommand = { cmd, source, at: now };
       if (cmd === 'toggle-visibility') {
         if (this.hidden) this.show();
         else this.hide();
