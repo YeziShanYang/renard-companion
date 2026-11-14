@@ -44,6 +44,10 @@
             <button class="btn" type="button" id="key-toggle" aria-controls="key" aria-pressed="false">Show</button>
           </div>
           <p class="status" id="key-status" role="status"></p>
+          <div class="access" id="api-access" hidden>
+            <p class="hint" id="api-access-text"></p>
+            <button class="btn btn-primary" type="button" id="api-access-btn">Allow access</button>
+          </div>
           <p class="hint" id="key-hint"></p>
         </div>
 
@@ -61,10 +65,6 @@
         <h2 id="sites-title">Sites</h2>
         <p class="hint">Renard appears only on the sites you turn on here.</p>
         <ul class="rows" id="sites"></ul>
-        <div class="access" id="api-access" hidden>
-          <p class="hint" id="api-access-text"></p>
-          <button class="btn btn-primary" type="button" id="api-access-btn">Allow access</button>
-        </div>
       </section>
 
       <section class="card" aria-labelledby="display-title">

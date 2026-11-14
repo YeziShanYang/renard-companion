@@ -88,7 +88,8 @@ async function checkKey() {
     return;
   }
   if (!(await hasOrigins(provider.origins))) {
-    setStatus('bad', `Renard needs access to ${provider.name} first (see Sites below).`);
+    // The access box under the key explains it and offers the button.
+    setStatus('', '');
     renderModels();
     return;
   }
@@ -122,6 +123,15 @@ async function checkKey() {
 
 function bindAi() {
   for (const radio of document.querySelectorAll('input[name="provider"]')) {
+    // Ask for the provider's API access as part of choosing it. Firefox
+    // grants host access only at install, so a provider added in a later
+    // version starts without it. The request has to start inside the click
+    // (Firefox drops the user gesture after an await); for access already
+    // granted it resolves at once without a prompt. A new grant re-renders
+    // the page through permissions.onAdded.
+    radio.addEventListener('click', () => {
+      ext.permissions.request({ origins: R.PROVIDERS[radio.value].origins }).catch(() => {});
+    });
     radio.addEventListener('change', async () => {
       if (!radio.checked) return;
       await save({ provider: radio.value });
@@ -222,7 +232,8 @@ async function renderAccess() {
   const granted = await hasOrigins(provider.origins);
   $('api-access').hidden = granted;
   if (granted) return;
-  $('api-access-text').textContent = `Renard needs permission to reach ${provider.origins[0].replace('/*', '')} to answer with ${provider.name}.`;
+  const host = new URL(provider.origins[0].replace('/*', '')).host;
+  $('api-access-text').textContent = `Renard needs your permission to contact ${provider.name} at ${host}.`;
   const old = $('api-access-btn');
   const btn = accessButton(provider.origins, () => {
     renderAccess();
