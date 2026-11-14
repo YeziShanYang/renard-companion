@@ -9,12 +9,14 @@
 ![Renard's answer bubble open beside the fox on a dark page, answering "why 256 per token vector"](docs/screenshot.webp)
 
 Renard is a pixel-art fox that lives in the side margins of the browser
-window on claude.ai and chatgpt.com, wandering around a little while it waits.
+window on claude.ai and chatgpt.com (and on any other website you add),
+wandering around a little while it waits.
 Click it, ask a question, and the answer comes from your own Anthropic, OpenAI,
 or Gemini API key, or from a built-in Gemma model that runs on your own
 computer, streamed into a large, readable panel. With **Read chat** on, the
 conversation open on the page is sent along as context, so questions like
-"summarize this chat" work.
+"summarize this chat" work. On other websites the switch reads **Read page**
+and sends the page's text instead.
 
 The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
 animations. The AI is only the answer engine and has no persona.
@@ -32,7 +34,9 @@ npm install
 ```
 
 `npm install` also copies the built-in model's engine (Transformers.js and
-ONNX Runtime Web, about 28 MB) into `src/vendor/` (git-ignored).
+ONNX Runtime Web, about 28 MB) into `src/vendor/` (git-ignored). The
+extension needs none of the dependencies' own install scripts, so
+`npm ci --ignore-scripts && npm run vendor` works too.
 
 ### Sprite sheet
 
@@ -81,7 +85,7 @@ fresh Chrome profile with Renard loaded.
 
 ### First run
 
-The settings page opens on install (it is also on the toolbar icon). Choose a
+The settings page opens on install (it is also in the toolbar menu). Choose a
 provider, paste an API key, and pick a model; loading the model list doubles as
 the key check. Or choose **Built-in** and download a Gemma model to run without
 a key (see below).
@@ -111,7 +115,7 @@ chat sends a shorter part of the conversation to the built-in model.
 | --- | --- |
 | Click the fox | Opens the bubble with a text box |
 | Enter / Shift+Enter | Ask / new line |
-| **Read chat** switch | Include the conversation on the page |
+| **Read chat** switch | Include the conversation on the page (**Read page** on other websites: the page's text) |
 | Drag the fox | Drop it anywhere; it runs back into the nearest side margin (side and height remembered per site) |
 | Esc or ✕ | Close the bubble |
 | Expand button | Larger reading view |
@@ -119,6 +123,17 @@ chat sends a shorter part of the conversation to the built-in model.
 | Copy / Clear buttons | Copy the answer / clear the question and answer |
 | Alt+Shift+F | Open or close the bubble |
 | Alt+Shift+H | Hide or show Renard |
+
+Clicking Renard's toolbar icon opens a small menu:
+
+- **Show Renard** sends the fox home from every tab, or brings it back
+  (on by default).
+- **On this site** turns Renard on or off for the website in the current tab.
+  For a new website, the browser asks for access to that one site; Renard
+  then appears there right away and on later visits. Added sites are listed
+  in settings under Sites, where they can be removed. Only secure (https)
+  pages can be added.
+- **Open settings** opens the settings page.
 
 On macOS, Alt is Option. Shortcuts can be changed in Firefox under
 `about:addons` → gear menu → **Manage Extension Shortcuts**, or in Chrome at
@@ -145,7 +160,14 @@ field would otherwise take the key first.
 - OpenAI requests set `store: false`. Gemini keys are sent in the
   `x-goog-api-key` header, never in request URLs.
 - With the built-in model, questions and chats never leave the computer. The
-  only network traffic is the one-time model download from Hugging Face.
+  only network traffic is the one-time model download from Hugging Face,
+  pinned to a fixed commit of each model's repository.
+- On a website you add, Renard sends the page's visible text, title, and
+  address without its query string or fragment, and only with **Read page**
+  on.
+- Renard's bubble is part of the page, so the site's own scripts can see what
+  is typed into it, as with anything typed on that site. The API key is
+  never on the page.
 
 ## How it works
 
@@ -156,7 +178,8 @@ src/
   shared/                constants, settings access, provider clients, prompt
   engine/                built-in model (Transformers.js on WebGPU)
   content/               on-page UI (closed Shadow DOM)
-    adapters/            per-site chat reading, composer location, theme
+    adapters/            per-site chat reading, composer location, theme; web.js reads any other page
+  popup/                 toolbar menu (show Renard, this site, settings)
   options/               settings page
   lines.json             canned fox lines
   fonts/                 Silkscreen (SIL Open Font License)
@@ -173,7 +196,15 @@ test/                    unit tests (node --test)
 - **Site adapters** (`content/adapters/`) are the only site-specific code: how to
   read user and assistant turns, where the message input is (so the bubble
   avoids covering it), and the page theme. When an adapter can't find messages
-  on a chat page, Renard says so and answers without the chat.
+  on a chat page, Renard says so and answers without the chat. `web.js`
+  handles every other site by reading the largest main or article region.
+- **Added websites** use optional host access, requested for one site at a
+  time from the toolbar menu. The background script registers the same
+  content scripts for those sites (`scripting.registerContentScripts`),
+  rebuilds that registration at startup, and injects them into tabs already
+  open. Styles go in through a constructed stylesheet where the browser
+  allows it, so a page whose security policy forbids inline styles still
+  shows Renard correctly.
 - **Background script** owns the API keys. Each question opens a port; the
   answer streams back over it, and closing the port cancels the request.
 - **Built-in engine** (`engine/`) runs Transformers.js on WebGPU. Firefox's

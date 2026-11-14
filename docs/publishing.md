@@ -48,13 +48,15 @@ each.
    (`src/vendor/transformers/`: Transformers.js and ONNX Runtime Web, versions
    in its `NOTICE.md`); the linter's `eval` warnings come from those files, and
    Renard's content security policy does not allow `eval`, so those code
-   paths never run.
+   paths would be blocked if they ran. The built-in model's files are pinned
+   to a Hugging Face commit (`revision` in `src/shared/constants.js`).
 5. **Listing details:** name (Renard), summary (250 characters or fewer), description,
    categories, support email or site, license, and the privacy policy URL.
 6. **Data collection:** AMO shows the manifest's declaration
    (`websiteContent`, `personalCommunications`). Make sure the listing
-   describes the same thing: the page's conversation is sent to the provider
-   you choose when you ask with **Read chat** on.
+   describes the same thing: the page's conversation (or, on a website the
+   user added, the page's text, title, and address without its query string)
+   is sent to the provider you choose when you ask with **Read chat** on.
 7. Submit. The add-on ID `renard-companion@YeziShanYang` is permanent; later
    versions must keep it.
 
@@ -67,18 +69,23 @@ each.
 3. **Store listing:** description, category (Productivity), language, icon,
    screenshots, and promo tile.
 4. **Privacy practices:**
-   - Single purpose: a companion on claude.ai and ChatGPT that answers your
-     questions with your own AI provider key.
+   - Single purpose: a companion on claude.ai, ChatGPT, and websites you add
+     that answers your questions with your own AI provider key.
    - Permission justifications: `storage` (settings and key on the device);
      `unlimitedStorage` (keeps the built-in model's files); `offscreen` (runs
-     the built-in model in a hidden page with GPU access);
-     each host permission (the three chat sites, to show the fox and read the
-     chat on request; the three API hosts, to send questions to the chosen
-     provider).
+     the built-in model in a hidden page with GPU access); `scripting` (shows
+     Renard on websites the user adds, by registering its page script for
+     those sites); `activeTab` (the toolbar popup reads the current tab's
+     address to offer "On this site"); each host permission (the three chat
+     sites, to show the fox and read the chat on request; the three API
+     hosts, to send questions to the chosen provider); optional host access
+     to `https://*/*` (requested for one site at a time, only when the user
+     turns Renard on for it).
    - Remote code: No. The built-in model's engine ships in the package; only
      model weights (data files) are downloaded from Hugging Face.
-   - Data usage: website content and personal communications (the chat, sent
-     with your question when Read chat is on), and authentication information
+   - Data usage: website content and personal communications (the chat, or an
+     added site's page text, sent with your question when Read chat is on),
+     and authentication information
      (the API key, stored locally and sent only to the provider). Certify the
      Limited Use statements.
    - Privacy policy URL.
