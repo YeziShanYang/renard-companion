@@ -60,6 +60,8 @@
   // Everything in storage.local except the API keys, which only the
   // background script and options page ever read.
   R.DEFAULTS = {
+    // Whether the fox is out at all (the toolbar popup's switch).
+    spawned: true,
     provider: 'anthropic',
     apiKeys: { anthropic: '', openai: '', gemini: '' },
     // Selected model per provider: { id, name, maxTokens, effortLow }, where

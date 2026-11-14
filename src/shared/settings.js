@@ -11,10 +11,13 @@ function isPlainObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
 
-export async function loadSettings() {
-  const stored = await ext.storage.local.get(Object.keys(R.DEFAULTS));
+// Loads settings with defaults filled in. Pages that have no use for the API
+// keys (the toolbar popup) pass the keys they need, so they never read them.
+export async function loadSettings(keys = Object.keys(R.DEFAULTS)) {
+  const stored = await ext.storage.local.get(keys);
   const out = {};
-  for (const [key, def] of Object.entries(R.DEFAULTS)) {
+  for (const key of keys) {
+    const def = R.DEFAULTS[key];
     const val = stored[key];
     out[key] = isPlainObject(def) ? { ...def, ...(isPlainObject(val) ? val : {}) } : val ?? def;
   }

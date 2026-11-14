@@ -1,0 +1,74 @@
+/* Toolbar popup. Tokens, buttons, and the switch come from options.css. */
+
+body {
+  width: 300px;
+}
+
+.popup {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.popup-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#fox {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
+
+.popup h1 {
+  font-size: 22px;
+}
+
+.popup-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.popup-row {
+  padding: 12px 14px;
+  background: var(--paper);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+  margin: 2px;
+}
+
+/* The settings page stacks rows on narrow screens; the popup is always
+   narrow, so keep the switch beside its label. */
+.popup .popup-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.popup .row-title {
+  font-size: 15px;
+}
+
+.popup .hint {
+  font-size: 13px;
+}
+
+.popup-note {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--warn);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.popup-settings {
+  justify-self: start;
+}

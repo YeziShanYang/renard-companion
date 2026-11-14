@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Renard</title>
+    <link rel="stylesheet" href="../options/options.css" />
+    <link rel="stylesheet" href="popup.css" />
+    <script src="../shared/constants.js"></script>
+    <script src="../content/sprite.js"></script>
+    <script type="module" src="popup.js"></script>
+  </head>
+  <body>
+    <main class="popup">
+      <header class="popup-head">
+        <canvas id="fox" width="32" height="32" aria-hidden="true"></canvas>
+        <div>
+          <h1>Renard</h1>
+          <p class="popup-sub" id="status"></p>
+        </div>
+      </header>
+
+      <div class="row popup-row">
+        <div class="row-text">
+          <span class="row-title" id="spawn-label">Show Renard</span>
+          <span class="hint" id="spawn-hint">On claude.ai and ChatGPT</span>
+        </div>
+        <label class="switch"
+          ><input type="checkbox" role="switch" id="spawned" aria-labelledby="spawn-label" aria-describedby="spawn-hint" /><span
+            class="switch-track"
+            ><span class="switch-thumb"></span></span
+        ></label>
+      </div>
+
+      <p class="popup-note" id="note" hidden></p>
+
+      <button class="btn btn-primary popup-settings" type="button" id="open-settings">Open settings</button>
+    </main>
+  </body>
+</html>

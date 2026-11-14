@@ -61,7 +61,8 @@ async function publicState(siteId) {
   const model = local || s.models[provider.id];
   return {
     site: siteId,
-    enabled: s.sites[siteId] !== false,
+    spawned: s.spawned !== false,
+    enabled: s.spawned !== false && s.sites[siteId] !== false,
     provider: provider.id,
     providerName: provider.name,
     // For the built-in provider, "has a key" means the model is downloaded.
@@ -343,12 +344,12 @@ async function updateBadge() {
   const action = ext.action;
   await action.setBadgeText({ text: ok ? '' : '!' });
   if (!ok) await action.setBadgeBackgroundColor({ color: '#d67941' });
-  await action.setTitle({ title: ok ? 'Renard settings' : 'Renard needs site access. Click to open settings.' });
+  await action.setTitle({ title: ok ? 'Renard' : 'Renard needs site access' });
 }
 
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (['provider', 'apiKeys', 'models', 'sites', 'prefs', 'localModel'].some((k) => k in changes)) {
+  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'prefs', 'localModel'].some((k) => k in changes)) {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }
@@ -361,10 +362,6 @@ ext.permissions.onAdded.addListener(() => {
 ext.permissions.onRemoved.addListener(() => {
   updateBadge().catch(() => {});
   broadcastRefresh();
-});
-
-ext.action.onClicked.addListener(() => {
-  ext.runtime.openOptionsPage();
 });
 
 ext.commands.onCommand.addListener(async (command, tab) => {

@@ -537,10 +537,33 @@
       await this.enter();
     }
 
+    // Unspawned from the toolbar, or the site was turned off: say goodbye,
+    // run off the near edge, and remove everything. A background tab can't
+    // animate, and the run is capped, so this always finishes.
+    async leave() {
+      if (this.unmounted || this.leaving) return;
+      this.leaving = true;
+      const f = this.fox;
+      const animate = !this.hidden && !document.hidden && !R.reducedMotion();
+      this.haltWander();
+      this.closeBubble(false);
+      this.cancelAsk();
+      for (const t of ['look', 'sleep', 'wander']) clearTimeout(this.timers[t]);
+      this.setMode('leaving');
+      if (animate) {
+        f.say(this.line('hidden'), { onChar: this.blip });
+        await wait(700);
+        const run = f.followPath([{ x: f.offscreenX(f.edge), y: f.y }], RUN_SPEED * 1.4);
+        await Promise.race([run, wait(2500)]);
+      }
+      this.unmount();
+    }
+
     // source: 'browser' (extension command) or 'page' (key seen in the page).
     // One key press can arrive both ways; the second within 600 ms is ignored
     // so a shortcut never toggles twice.
     command(cmd, source = 'browser') {
+      if (this.leaving) return;
       const now = performance.now();
       const last = this.lastCommand;
       if (last && last.cmd === cmd && last.source !== source && now - last.at < 600) return;
@@ -574,7 +597,7 @@
         return;
       }
       this.haltWander();
-      if (['entering', 'dizzy', 'hidden', 'walking', 'dragging'].includes(this.mode)) return;
+      if (['entering', 'dizzy', 'hidden', 'walking', 'dragging', 'leaving'].includes(this.mode)) return;
       if (this.bubble.isOpen) {
         this.closeBubble(false);
         return;

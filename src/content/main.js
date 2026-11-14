@@ -44,9 +44,12 @@
     const state = await R.send('renard:getState', { site: site.id });
     if (retired) return;
     if (!state.enabled) {
+      // Unspawned or site turned off. A respawn that arrives during the
+      // goodbye run waits for it (sync is serialized), then mounts afresh.
       if (app) {
-        app.unmount();
+        const leaving = app;
         app = null;
+        await leaving.leave();
       }
       return;
     }

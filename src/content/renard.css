@@ -184,6 +184,11 @@
   cursor: grabbing;
 }
 
+/* Running off after being unspawned: no more clicks or drags. */
+.fox[data-mode='leaving'] {
+  pointer-events: none;
+}
+
 /* The ring is for keyboard users; it hides while the fox is handled with a
    pointer and returns on the next key press. */
 .fox:not([data-pointer]) .fox-hit:focus-visible {
