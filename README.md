@@ -9,7 +9,8 @@
 Renard is a pixel-art fox that lives in the side margins of the browser
 window on claude.ai and chatgpt.com, wandering around a little while it waits.
 Click it, ask a question, and the answer comes from your own Anthropic, OpenAI,
-or Gemini API key, streamed into a large, readable panel. With **Read chat** on, the conversation open on the page is sent along as
+or Gemini API key, or from a built-in Gemma model that runs on your own
+computer, streamed into a large, readable panel. With **Read chat** on, the conversation open on the page is sent along as
 context, so questions like "summarize this chat" work.
 
 The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
@@ -23,6 +24,9 @@ Chromium-based browser.
 ```sh
 npm install
 ```
+
+`npm install` also copies the built-in model's engine (Transformers.js and
+ONNX Runtime Web, about 28 MB) into `src/vendor/` (git-ignored).
 
 ### Sprite sheet
 
@@ -68,6 +72,25 @@ The settings page opens on install (it is also on the toolbar icon). Choose a
 provider, paste an API key, and pick a model. Loading the model list doubles as
 the key check.
 
+## Built-in model
+
+Choosing **Built-in** in settings runs Gemma on the computer's graphics chip
+through WebGPU, with no API key. The model downloads once from Hugging Face,
+is kept in the browser's extension storage, and works offline after that;
+settings shows the space used and can delete it.
+
+| Model | Download (Chrome / Firefox) | Notes |
+| --- | --- | --- |
+| Gemma 3 1B (default) | 0.8 / 0.9 GB | Quick and light; short questions and summaries |
+| Gemma 4 E2B | 3.1 / 3.6 GB | Noticeably smarter; needs about 5 GB of free memory |
+
+It needs WebGPU: Chrome 113 or later, or Firefox 147 or later on Apple Silicon
+Macs and Windows (not yet Intel Macs or Linux). Firefox uses the `q4` builds,
+because its WebGPU rejects a shader in the `q4f16` builds that Chrome uses. In
+testing on an Apple Silicon Mac, Gemma 3 1B started answering in about half a
+second and wrote about 8 tokens per second in Firefox; Chrome is faster. Read
+chat sends a shorter part of the conversation to the built-in model.
+
 ## Using Renard
 
 | Action | Result |
@@ -107,6 +130,8 @@ field would otherwise take the key first.
   settings page read them; the script injected into the page never does.
 - OpenAI requests set `store: false`. Gemini keys are sent in the
   `x-goog-api-key` header, never in request URLs.
+- With the built-in model, questions and chats never leave the computer. The
+  only network traffic is the one-time model download from Hugging Face.
 
 ## How it works
 
@@ -115,13 +140,15 @@ src/
   manifest.json          MV3; background.scripts (Firefox) + service_worker (Chrome)
   background/            API calls, settings, asset delivery, badge, shortcuts
   shared/                constants, settings access, provider clients, prompt
+  engine/                built-in model (Transformers.js on WebGPU)
   content/               on-page UI (closed Shadow DOM)
     adapters/            per-site chat reading, composer location, theme
   options/               settings page
   lines.json             canned fox lines
   fonts/                 Silkscreen (SIL Open Font License)
   icons/                 toolbar icons (original fox head, from scripts/make-icons.mjs)
-scripts/                 icon generator, store packaging
+  vendor/                Transformers.js and ONNX Runtime Web (copied on npm install)
+scripts/                 icon generator, engine vendoring, store packaging
 test/                    unit tests (node --test)
 ```
 
@@ -135,6 +162,13 @@ test/                    unit tests (node --test)
   on a chat page, Renard says so and answers without the chat.
 - **Background script** owns the API keys. Each question opens a port; the
   answer streams back over it, and closing the port cancels the request.
+- **Built-in engine** (`engine/`) runs Transformers.js on WebGPU. Firefox's
+  background page hosts it directly; Chrome's service worker can't, so it runs
+  in an offscreen document reached over a port. The page and settings ping the
+  background during answers and downloads, because Firefox suspends an idle
+  background page after about 30 seconds. The engine's code ships in the
+  package (no code is loaded from the network); only model weights are
+  downloaded.
 - **Providers** (`shared/providers.js`) call the APIs with `fetch` and parse
   the SSE streams: the Anthropic Messages API (`anthropic-version: 2026-10-21`),
   the OpenAI Responses API, and the Gemini API's `streamGenerateContent`
@@ -166,3 +200,7 @@ The Firefox add-on ID is `renard-companion@YeziShanYang` and should not change.
 - Fox art by Elthen ("2D Pixel Art Fox Sprites").
 - Silkscreen font by The Silkscreen Project Authors, SIL Open Font License
   (`src/fonts/OFL.txt`).
+- Built-in model engine: Transformers.js by Hugging Face (Apache 2.0) and ONNX
+  Runtime Web by Microsoft (MIT).
+- Gemma models are by Google and are downloaded from Hugging Face under their
+  own terms, listed on each model's page.

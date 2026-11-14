@@ -43,7 +43,12 @@ each.
      listed (good for personal use before a public release).
 3. Upload `dist/renard-firefox-<version>.zip`.
 4. **Source code:** answer that no source submission is needed. Renard ships
-   its code as written, without minifying, bundling, or transpiling.
+   its own code as written, without minifying, bundling, or transpiling. The
+   only minified files are third-party libraries copied unmodified from npm
+   (`src/vendor/transformers/`: Transformers.js and ONNX Runtime Web, versions
+   in its `NOTICE.md`); the linter's `eval` warnings come from those files, and
+   Renard's content security policy does not allow `eval`, so those code
+   paths never run.
 5. **Listing details:** name (Renard), summary (250 characters or fewer), description,
    categories, support email or site, license, and the privacy policy URL.
 6. **Data collection:** AMO shows the manifest's declaration
@@ -65,10 +70,13 @@ each.
    - Single purpose: a companion on claude.ai and ChatGPT that answers your
      questions with your own AI provider key.
    - Permission justifications: `storage` (settings and key on the device);
+     `unlimitedStorage` (keeps the built-in model's files); `offscreen` (runs
+     the built-in model in a hidden page with GPU access);
      each host permission (the three chat sites, to show the fox and read the
      chat on request; the three API hosts, to send questions to the chosen
      provider).
-   - Remote code: No.
+   - Remote code: No. The built-in model's engine ships in the package; only
+     model weights (data files) are downloaded from Hugging Face.
    - Data usage: website content and personal communications (the chat, sent
      with your question when Read chat is on), and authentication information
      (the API key, stored locally and sent only to the provider). Certify the

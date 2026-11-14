@@ -1,17 +1,18 @@
 # Renard privacy policy
 
-Last updated: November 13, 2026
+Last updated: November 14, 2026
 
 Renard is a browser extension that shows a pixel-art fox on claude.ai and
 chatgpt.com and answers questions using an AI provider account that you supply
-(Anthropic, OpenAI, or Google Gemini). This policy describes what data Renard
-handles and where it goes.
+(Anthropic, OpenAI, or Google Gemini) or a built-in model that runs on your own
+computer. This policy describes what data Renard handles and where it goes.
 
 ## Summary
 
 Renard has no server. Nothing you type or read is sent to the developer of
 Renard. Your questions, and the page's conversation when you turn on **Read
-chat**, go directly from your browser to the AI provider you chose.
+chat**, go directly from your browser to the AI provider you chose. With the
+built-in model, they never leave your computer.
 
 ## What Renard handles
 
@@ -22,6 +23,7 @@ chat**, go directly from your browser to the AI provider you chose.
 | The conversation on the page (chat messages and other page text) | Only when you send a question with **Read chat** on | Your chosen provider, with your question | Not stored |
 | The provider's answer | When it arrives | Shown on the page | Not stored; shown until cleared or reloaded |
 | Settings (provider, model, sites, display options, Renard's position and bubble size) | When you change them | Nowhere | Your browser's extension storage, on your device |
+| Built-in model files | When you click Download in settings | Downloaded from Hugging Face (huggingface.co); no question or chat is sent | Your browser's extension storage, until you delete them in settings or uninstall |
 
 Long conversations are trimmed to their most recent part before they are sent,
 and Renard says when it did so.
@@ -54,9 +56,21 @@ Requests on a paid Gemini plan are not used for product improvement.
 - It runs only on claude.ai, chatgpt.com, and chat.openai.com, and only on the
   sites you turn on in its settings.
 
+## Built-in model
+
+When you choose the built-in model, Renard runs Gemma on your computer's
+graphics chip. Your questions, the conversation it reads, and its answers are
+processed only on your device. The model files come from Hugging Face, which
+receives an ordinary download request (as for any file you download) but none
+of your content. Gemma models are provided by Google under their own terms.
+
 ## Permissions
 
 - **Storage:** to keep your settings and API key on your device.
+- **Unlimited storage:** so the browser keeps the built-in model's files
+  instead of clearing them when space runs low.
+- **Offscreen documents (Chrome only):** to run the built-in model in a hidden
+  extension page, which has access to the graphics chip.
 - **Access to claude.ai, chatgpt.com, and chat.openai.com:** to show the fox and
   read the conversation when you ask with **Read chat** on.
 - **Access to api.anthropic.com, api.openai.com, and
