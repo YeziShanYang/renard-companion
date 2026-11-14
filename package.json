@@ -13,7 +13,7 @@
     "start:chrome": "web-ext run --source-dir src --target chromium --start-url https://claude.ai/new",
     "lint": "web-ext lint --source-dir src",
     "prebuild": "node scripts/make-icons.mjs",
-    "build": "web-ext build --source-dir src --overwrite-dest",
+    "build": "node scripts/package.mjs",
     "test": "node --test \"test/*.test.mjs\""
   },
   "devDependencies": {
