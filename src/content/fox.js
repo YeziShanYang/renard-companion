@@ -190,7 +190,7 @@
       for (const p of points) {
         if (Math.abs(p.x - this.x) > 6) this.face(p.x > this.x ? 'right' : 'left');
         const speed = baseSpeed * (p.speed || 1);
-        this.walkMs = Math.round(Math.min(140, Math.max(55, (85 * 160) / speed)));
+        this.walkMs = Math.round(Math.min(108, Math.max(45, (85 * 160) / speed)));
         if (p.hop && !this.hopping) this.hop();
         else if (!this.hopping) this.sprite.play('walk', { ms: this.walkMs, keep: true });
         if (!(await this.moveTo(p.x, p.y, speed))) {

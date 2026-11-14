@@ -8,9 +8,10 @@
   const LOOK_MAX_MS = 40000;
   const WANDER_MIN_MS = 12000;
   const WANDER_MAX_MS = 30000;
-  const WANDER_SPEED = 70; // px/s: an amble, slower than running back after a drag
+  const WANDER_SPEED = 91; // px/s: an amble, slower than running back after a drag
   const WANDER_RANGE_Y = 110; // px above or below its home height a stroll may go
-  const RUN_SPEED = 170;
+  const RUN_SPEED = 221;
+  const ENTER_SPEED = 286; // the trot in from off-screen
   const EDGE_GAP = 28; // closest the fox's body ever rests to the screen edge
   const MAX_INSET = 260; // farthest it wanders from the edge
   const LEAP = 120; // entrance: the last stretch is a pounce
@@ -322,7 +323,7 @@
       const dir = Math.sign(target - f.x);
       if (Math.abs(target - f.x) > LEAP + 24) {
         const path = R.meander({ x: f.x, y: f.y }, { x: target - dir * LEAP, y: f.y }, { wiggle: 28, hops: false, bounds: this.roamBounds() });
-        if (!(await f.followPath(path, 220)) || this.mode !== 'entering') return;
+        if (!(await f.followPath(path, ENTER_SPEED)) || this.mode !== 'entering') return;
       }
       f.faceIntoPage();
       f.sprite.play('pounce');
@@ -526,7 +527,7 @@
       await wait(500);
       if (!this.hidden) return;
       this.fox.hush();
-      await this.fox.tweenTo(this.fox.offscreenX(this.fox.edge), 300);
+      await this.fox.tweenTo(this.fox.offscreenX(this.fox.edge), 230);
       if (this.hidden) this.root.dataset.hidden = 'true';
     }
 
