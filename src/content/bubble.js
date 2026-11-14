@@ -41,10 +41,11 @@
       this.copyBtn = iconButton('copy', 'Copy answer', () => this.copy(), { 'data-copied': 'false' });
       this.copyBtn.classList.add('copy-btn');
       this.copyBtn.append(R.icon('check'));
+      this.clearBtn = iconButton('clear', 'Clear question and answer', () => H.onClear());
       this.note = h('p', { class: 'note', hidden: true });
       this.answer = h('div', { class: 'answer', tabindex: '0', role: 'region', 'aria-label': 'Answer' });
       this.qa = h('div', { class: 'qa', hidden: true }, [
-        h('div', { class: 'qa-head' }, [h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]), this.copyBtn]),
+        h('div', { class: 'qa-head' }, [h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]), this.copyBtn, this.clearBtn]),
         this.note,
         h('div', { class: 'answer-box' }, [this.answer]),
       ]);
@@ -228,6 +229,17 @@
       this.setAnswer('', { streaming: true });
       this.copyBtn.disabled = true;
       this.status.textContent = '';
+    }
+
+    // Back to an empty bubble: no question, answer, note, or draft.
+    reset() {
+      this.setAnswer('', { streaming: false });
+      this.qa.hidden = true;
+      this.askedText.textContent = '';
+      this.setNote('');
+      this.setNotice(null);
+      this.setDraft('');
+      this.status.textContent = 'Cleared';
     }
 
     setNote(text) {

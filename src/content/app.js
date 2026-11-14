@@ -97,6 +97,7 @@
         onResizeEnd: () => this.saveBubble(),
         onReadChatChange: (on) => this.setReadChat(on),
         onOpenSettings: () => R.send('renard:openOptions').catch(() => {}),
+        onClear: () => this.clearAnswer(),
       });
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
@@ -857,6 +858,18 @@
         default:
           return m.message ? `${p}: ${m.message}` : '';
       }
+    }
+
+    // Clears the question and answer (stopping one still streaming) so the
+    // next question starts from an empty bubble.
+    clearAnswer() {
+      this.cancelAsk();
+      this.last = null;
+      this.bubble.reset();
+      this.bubble.setLine(this.line('cleared'), { onChar: this.blip });
+      if (['thinking', 'reacting'].includes(this.mode)) this.rest();
+      if (!this.freePlaced) this.placeBubble();
+      this.bubble.input.focus();
     }
 
     stop() {

@@ -5,6 +5,7 @@
   "thinking": ["Hmm, let me think…", "Sniffing out an answer…", "One sec, digging…"],
   "answered": ["Got it!", "Here you go!", "Found it!"],
   "stopped": ["Okay, I stopped.", "Stopping there!"],
+  "cleared": ["Fresh start!", "All clear! What's next?", "Wiped clean!"],
   "sleep": ["Zzz…"],
   "wake": ["Oh! I'm up!", "Huh? I'm awake!"],
   "noKey": ["I need an API key to wake up!"],
