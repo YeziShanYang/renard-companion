@@ -16,7 +16,7 @@
 
   let app = null;
   let assets = null;
-  let mounting = null;
+  let running = null;
   let again = false;
   let retired = false;
 
@@ -38,42 +38,48 @@
     }
   });
 
-  async function sync() {
-    if (retired) return undefined;
-    if (mounting) {
-      again = true;
-      return mounting;
-    }
+  // Brings the page in line with settings: mount, update, or remove Renard.
+  async function syncOnce() {
+    if (retired) return;
     const state = await R.send('renard:getState', { site: site.id });
+    if (retired) return;
     if (!state.enabled) {
       if (app) {
         app.unmount();
         app = null;
       }
-      return undefined;
+      return;
     }
     if (app) {
       app.applyState(state);
-      return undefined;
+      return;
     }
-    mounting = (async () => {
-      assets = assets || (await R.send('renard:getAssets'));
-      const next = new R.App(site, state, assets);
-      await next.mount();
-      app = next;
-    })().finally(() => {
-      mounting = null;
-      if (retired && app) {
-        app.unmount();
-        app = null;
-        return;
+    assets = assets || (await R.send('renard:getAssets'));
+    const next = new R.App(site, state, assets);
+    await next.mount();
+    if (retired) next.unmount();
+    else app = next;
+  }
+
+  // Runs one sync at a time. A request that arrives mid-sync (a settings
+  // change right at page load, say) queues one more pass instead of starting
+  // a second, parallel mount.
+  function sync() {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = (async () => {
+      try {
+        do {
+          again = false;
+          await syncOnce();
+        } while (again && !retired);
+      } finally {
+        running = null;
       }
-      if (again) {
-        again = false;
-        sync().catch(() => {});
-      }
-    });
-    return mounting;
+    })();
+    return running;
   }
   R.sync = sync;
 
