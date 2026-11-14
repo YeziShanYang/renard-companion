@@ -70,7 +70,7 @@
         item.push(l.trim()); // lazy continuation
         i++;
       }
-      node.items.push({ children: parseBlocks(item) });
+      node.items.push({ children: nested(item) });
       // A blank line between sibling items keeps the list going.
       let j = i;
       while (j < lines.length && isBlank(lines[j])) j++;
@@ -78,6 +78,21 @@
       if (j > i && next && next[1].length === base && /\d/.test(next[2]) === ordered) i = j;
     }
     return [node, i];
+  }
+
+  // Quotes and lists nest by recursion; past this depth the rest is text, so
+  // a hostile answer can't overflow the stack.
+  const MAX_DEPTH = 20;
+  let depth = 0;
+
+  function nested(lines) {
+    if (depth >= MAX_DEPTH) return [{ type: 'p', children: [{ type: 'text', text: lines.join(' ') }] }];
+    depth++;
+    try {
+      return parseBlocks(lines);
+    } finally {
+      depth--;
+    }
   }
 
   function parseBlocks(lines) {
@@ -125,7 +140,7 @@
           buf.push(lines[i].replace(/^\s{0,3}>\s?/, ''));
           i++;
         }
-        out.push({ type: 'quote', children: parseBlocks(buf) });
+        out.push({ type: 'quote', children: nested(buf) });
         continue;
       }
 
@@ -185,6 +200,25 @@
     { re: /^~~(?=\S)([\s\S]+?)(?<=\S)~~/, make: (m) => ({ type: 'del', children: parseInline(m[1]) }) },
   ];
 
+  // Inside a link's text, nothing else becomes a link (no nested anchors).
+  let inLink = 0;
+
+  function plainText(nodes) {
+    return nodes.map((n) => (n.type === 'text' || n.type === 'code' ? n.text : n.children ? plainText(n.children) : '')).join('');
+  }
+
+  // A link whose text isn't its own address also shows where it really goes,
+  // so "[your settings](https://elsewhere.example)" can't pass for a link to
+  // the settings.
+  function linkNode(href, children) {
+    const node = { type: 'link', href, children };
+    const text = plainText(children).trim().replace(/\/$/, '');
+    if (text !== href.replace(/\/$/, '') && text !== href.replace(/^mailto:/, '')) {
+      node.dest = href.startsWith('mailto:') ? href.slice(7).split('?')[0] : new URL(href).host;
+    }
+    return node;
+  }
+
   function parseInline(src) {
     const out = [];
     let text = '';
@@ -231,18 +265,21 @@
         continue;
       }
 
-      if (ch === '[') {
+      if (ch === '[' && !inLink) {
         const m = rest.match(/^\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/);
         const href = m && safeUrl(m[2]);
         if (href) {
           flush();
-          out.push({ type: 'link', href, children: parseInline(m[1] || m[2]) });
+          inLink++;
+          const children = parseInline(m[1] || m[2]);
+          inLink--;
+          out.push(linkNode(href, children));
           i += m[0].length;
           continue;
         }
       }
 
-      if (ch === '<') {
+      if (ch === '<' && !inLink) {
         const m = rest.match(/^<(https?:\/\/[^>\s]+)>/);
         const href = m && safeUrl(m[1]);
         if (href) {
@@ -253,7 +290,7 @@
         }
       }
 
-      if (ch === 'h' && !/[A-Za-z0-9]/.test(src[i - 1] || '')) {
+      if (ch === 'h' && !inLink && !/[A-Za-z0-9]/.test(src[i - 1] || '')) {
         const m = rest.match(/^https?:\/\/[^\s<]+[^\s<.,:;"')\]!?*_~]/);
         const href = m && safeUrl(m[0]);
         if (href) {
@@ -312,10 +349,17 @@
         case 'link': {
           const a = document.createElement('a');
           a.href = n.href;
+          a.title = n.href;
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
           renderInline(n.children, a);
           parent.append(a);
+          if (n.dest) {
+            const dest = document.createElement('span');
+            dest.className = 'link-dest';
+            dest.textContent = ` (${n.dest})`;
+            parent.append(dest);
+          }
           break;
         }
         default: {
@@ -399,11 +443,25 @@
     }
   }
 
+  // Never throws: anything the parser can't handle shows as plain text.
   function render(markdown) {
     const frag = document.createDocumentFragment();
-    renderBlocks(parse(markdown), frag);
+    try {
+      renderBlocks(parse(markdown), frag);
+    } catch {
+      depth = 0;
+      inLink = 0;
+      frag.replaceChildren(plainBlock(markdown));
+    }
     return frag;
   }
 
-  R.markdown = { parse, render };
+  function plainBlock(markdown) {
+    const p = document.createElement('p');
+    p.className = 'plain';
+    p.textContent = String(markdown);
+    return p;
+  }
+
+  R.markdown = { parse, render, plainBlock };
 })();

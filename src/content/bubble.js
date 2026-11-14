@@ -267,14 +267,22 @@
       this.markdown = markdown;
       this.setStreaming(streaming);
       this.copyBtn.disabled = streaming || !markdown;
+      if (!markdown) {
+        this.renderCost = 0;
+        this.plainStream = false;
+      }
       if (streaming) {
-        // Coalesce rapid deltas into one render per frame.
+        // Coalesce rapid deltas into one render per frame, or ten a second
+        // once rendering gets slow (the whole answer is re-parsed each time).
         if (!this.renderQueued) {
           this.renderQueued = true;
-          requestAnimationFrame(() => {
-            this.renderQueued = false;
-            this.renderAnswer();
-          });
+          const delay = this.renderCost > 8 ? 100 : 0;
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              this.renderQueued = false;
+              this.renderAnswer();
+            });
+          }, delay);
         }
       } else {
         this.renderAnswer();
@@ -284,7 +292,12 @@
     renderAnswer() {
       const box = this.answer;
       const pinned = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-      const frag = R.markdown.render(this.markdown);
+      const started = performance.now();
+      // An answer too slow to re-format on every update streams as plain
+      // text and is formatted once at the end.
+      const frag = this.streaming && this.plainStream ? R.markdown.plainBlock(this.markdown) : R.markdown.render(this.markdown);
+      this.renderCost = performance.now() - started;
+      if (this.streaming && this.renderCost > 50) this.plainStream = true;
       if (this.streaming) {
         // Put the cursor right after the last character: descend while the
         // last node is an element (list item, paragraph, code), but stop at

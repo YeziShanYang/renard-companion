@@ -46,6 +46,25 @@ test('links allow only http(s) and mailto', () => {
   assert.ok(p.children.slice(1).every((n) => n.type === 'text'));
 });
 
+test('links with their own text show the real destination', () => {
+  const [p] = parse('[your settings](https://evil.example/s?c=1) and [https://claude.ai/settings](https://evil.example/x)');
+  assert.equal(p.children[0].dest, 'evil.example');
+  assert.equal(p.children[2].dest, 'evil.example');
+  assert.equal(p.children[2].children.length, 1, 'no link inside link text');
+  assert.deepEqual(p.children[2].children[0], text('https://claude.ai/settings'));
+  const [q] = parse('<https://example.com> [me@example.com](mailto:me@example.com) [mail](mailto:a@b.example?body=x)');
+  assert.equal(q.children[0].dest, undefined, 'autolink names itself');
+  assert.equal(q.children[2].dest, undefined, 'address as text');
+  assert.equal(q.children[4].dest, 'a@b.example');
+});
+
+test('deep nesting is capped instead of overflowing the stack', () => {
+  const blocks = parse(`${'>'.repeat(6000)} deep`);
+  let d = 0;
+  for (let n = blocks[0]; n && n.type === 'quote'; n = n.children[0]) d++;
+  assert.ok(d <= 21, `depth ${d}`);
+});
+
 test('bare URLs become links without trailing punctuation', () => {
   const [p] = parse('See https://example.com/docs.');
   assert.deepEqual(p.children[1], { type: 'link', href: 'https://example.com/docs', children: [text('https://example.com/docs')] });

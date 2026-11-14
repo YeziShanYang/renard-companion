@@ -632,6 +632,17 @@
   text-underline-offset: 2px;
 }
 
+/* Where a link with its own text really goes. */
+.answer .link-dest {
+  color: var(--muted);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.answer .plain {
+  white-space: pre-wrap;
+}
+
 .answer blockquote {
   padding-left: 10px;
   border-left: 3px solid var(--orange);
