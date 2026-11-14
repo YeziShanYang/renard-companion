@@ -8,7 +8,8 @@
 
 Renard is a pixel-art fox that lives at the edge of the browser window on
 claude.ai and chatgpt.com. Click it, ask a question, and the answer comes from
-your own Anthropic or OpenAI API key, streamed into a large, readable panel.
+your own Anthropic, OpenAI, or Gemini API key, streamed into a large, readable
+panel.
 With **Read chat** on, the conversation open on the page is sent along as
 context, so questions like "summarize this chat" work.
 
@@ -88,11 +89,16 @@ Shortcuts can be changed in Firefox under `about:addons` → gear menu →
   is never stored. Long chats are trimmed to the most recent part, and Renard
   says when it did so.
 - The site and the provider are independent: a ChatGPT conversation can be sent
-  to Anthropic, and a Claude conversation to OpenAI.
+  to Anthropic or Google, and a Claude conversation to OpenAI or Google.
+- On the Gemini API's free tier, Google's terms allow it to use submitted
+  content and responses to improve its products, and human reviewers may read
+  them. Paid-tier requests are not used for product improvement (and in the EEA,
+  Switzerland, and the UK the paid-tier terms apply to all use).
 - API keys are kept in `storage.local` on the device, unencrypted, as is
   standard for bring-your-own-key extensions. Only the background script and the
   settings page read them; the script injected into the page never does.
-- OpenAI requests set `store: false`.
+- OpenAI requests set `store: false`. Gemini keys are sent in the
+  `x-goog-api-key` header, never in request URLs.
 
 ## How it works
 
@@ -121,10 +127,11 @@ test/                    unit tests (node --test)
 - **Background script** owns the API keys. Each question opens a port; the
   answer streams back over it, and closing the port cancels the request.
 - **Providers** (`shared/providers.js`) call the APIs with `fetch` and parse
-  the SSE streams: the Anthropic Messages API (`anthropic-version: 2026-10-21`)
-  and the OpenAI Responses API. Optional request fields (low effort, refusal
-  fallbacks, reasoning effort) are sent when the model supports them, with one
-  automatic retry without them if a model rejects them.
+  the SSE streams: the Anthropic Messages API (`anthropic-version: 2026-10-21`),
+  the OpenAI Responses API, and the Gemini API's `streamGenerateContent`
+  (`alt=sse`). Optional request fields (low effort, refusal fallbacks,
+  reasoning effort, Gemini thinking level) are sent when the model supports
+  them, with one automatic retry without them if a model rejects them.
 
 ## Development
 
