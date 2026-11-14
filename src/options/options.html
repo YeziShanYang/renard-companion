@@ -32,6 +32,7 @@
         <div class="segmented" role="radiogroup" aria-label="Provider">
           <label><input type="radio" name="provider" value="anthropic" /><span>Anthropic</span></label>
           <label><input type="radio" name="provider" value="openai" /><span>OpenAI</span></label>
+          <label><input type="radio" name="provider" value="gemini" /><span>Gemini</span></label>
         </div>
 
         <div class="field">
@@ -110,8 +111,12 @@
             you ask. It is never stored.
           </li>
           <li>
-            The site and the provider are independent. A ChatGPT conversation can be sent to Anthropic, and a Claude
-            conversation to OpenAI.
+            The site and the provider are independent. A ChatGPT conversation can be sent to Anthropic or Google, and a
+            Claude conversation to OpenAI or Google.
+          </li>
+          <li>
+            On the Gemini API's free tier, Google's terms let it use what you send, including any chat Renard includes,
+            to improve its products, and human reviewers may read it. Requests on a paid Gemini plan are not used that way.
           </li>
           <li>
             Your API key is stored on this device in the browser's extension storage, unencrypted, which is standard for

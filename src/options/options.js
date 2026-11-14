@@ -8,6 +8,7 @@ const $ = (id) => document.getElementById(id);
 const KEY_HINTS = {
   anthropic: { text: 'Create a key in the Claude Console', url: 'https://platform.claude.com/settings/keys' },
   openai: { text: 'Create a key on the OpenAI platform', url: 'https://platform.openai.com/api-keys' },
+  gemini: { text: 'Create a key in Google AI Studio', url: 'https://aistudio.google.com/apikey' },
 };
 
 let settings = null;
