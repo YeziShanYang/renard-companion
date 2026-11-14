@@ -87,8 +87,13 @@
         else H.onSubmit(this.input.value);
       });
 
-      this.grip = h('div', { class: 'grip', title: 'Resize' }, [R.icon('grip')]);
-      this.bindGrip();
+      // A resize handle on each corner; dragging one moves that corner while
+      // the opposite corner stays put.
+      this.corners = ['nw', 'ne', 'sw', 'se'].map((corner) => {
+        const el = h('div', { class: `corner corner-${corner}`, 'data-corner': corner, title: 'Drag to resize' }, [R.icon('grip')]);
+        this.bindCorner(el, corner);
+        return el;
+      });
 
       this.el = h(
         'section',
@@ -100,7 +105,7 @@
           'data-side': 'left',
           'data-expanded': 'false',
         },
-        [R.tail(5), head, this.notice, this.qa, this.status, this.form, this.grip],
+        [R.tail(5), head, this.notice, this.qa, this.status, this.form, ...this.corners],
       );
     }
 
@@ -122,7 +127,8 @@
 
     // anchor 'bottom': offset is the distance from the viewport bottom and the
     // bubble grows upward; anchor 'top': offset is the top, growing downward.
-    place({ side, anchor, offset, left, width, maxHeight, tailOffset, expanded, expandedHeight, answerMax }) {
+    // height: a fixed height (from resizing), or 0 to fit the content.
+    place({ side, anchor, offset, left, width, height = 0, maxHeight, tailOffset, expanded, expandedHeight }) {
       const s = this.el.style;
       this.el.dataset.side = side;
       this.el.dataset.anchor = anchor;
@@ -137,7 +143,12 @@
       s.setProperty('--max-h', `${Math.round(maxHeight)}px`);
       s.setProperty('--tail-offset', `${Math.round(tailOffset)}px`);
       s.setProperty('--expanded-h', `${Math.round(expandedHeight)}px`);
-      s.setProperty('--answer-max', answerMax ? `${Math.round(answerMax)}px` : '60vh');
+      s.setProperty('--h', height ? `${Math.round(height)}px` : 'auto');
+      this.el.dataset.sized = height ? 'true' : 'false';
+    }
+
+    hasAnswer() {
+      return !this.qa.hidden;
     }
 
     focusPrimary() {
@@ -145,32 +156,27 @@
       else this.input.focus();
     }
 
-    bindGrip() {
+    bindCorner(el, corner) {
       let start = null;
-      this.grip.addEventListener('pointerdown', (e) => {
+      el.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
-        const rect = this.el.getBoundingClientRect();
-        const answerRect = this.answer.getBoundingClientRect();
-        start = { x: e.clientX, y: e.clientY, w: rect.width, h: answerRect.height || 200, side: this.el.dataset.side };
-        this.grip.setPointerCapture(e.pointerId);
+        start = { x: e.clientX, y: e.clientY, rect: this.el.getBoundingClientRect() };
+        this.el.dataset.resizing = 'true';
+        el.setPointerCapture(e.pointerId);
       });
-      this.grip.addEventListener('pointermove', (e) => {
+      el.addEventListener('pointermove', (e) => {
         if (!start) return;
-        const dx = e.clientX - start.x;
-        const dy = e.clientY - start.y;
-        // The grip sits on the top corner away from the fox, so dragging it
-        // outward and upward grows the bubble.
-        const width = start.side === 'left' ? start.w - dx : start.w + dx;
-        this.handlers.onResize({ width, height: start.h - dy });
+        this.handlers.onResize({ corner, rect: start.rect, dx: e.clientX - start.x, dy: e.clientY - start.y });
       });
       const end = () => {
         if (!start) return;
         start = null;
+        delete this.el.dataset.resizing;
         this.handlers.onResizeEnd();
       };
-      this.grip.addEventListener('pointerup', end);
-      this.grip.addEventListener('pointercancel', end);
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
     }
 
     // ---- content --------------------------------------------------------

@@ -630,6 +630,7 @@
       if (!this.bubble.isOpen) return;
       const hadFocus = this.bubble.contains(this.shadow.activeElement);
       this.bubble.close();
+      this.freePlaced = false;
       this.fox.setExpanded(false);
       if (restoreFocus || hadFocus) this.fox.button.focus({ preventScroll: true });
       this.touch();
@@ -657,7 +658,10 @@
         floor = Math.max(MARGIN + 220, comp.top - MARGIN);
       }
       const headY = r.top + r.height * 0.3;
-      const common = { side, left, width, expanded, answerMax: this.bubbleSize.height || 0 };
+      // A size the user dragged out applies once there is an answer to show;
+      // before that the bubble fits its content.
+      const sized = !expanded && this.bubbleSize.height && this.bubble.hasAnswer() ? this.bubbleSize.height : 0;
+      const common = { side, left, width, expanded };
 
       if (r.top + r.height / 2 < vh * 0.45) {
         // Fox in the upper part of the screen: hang the bubble from beside it
@@ -668,6 +672,7 @@
           ...common,
           anchor: 'top',
           offset: top,
+          height: Math.min(sized, maxHeight),
           maxHeight,
           tailOffset: headY - top - 4,
           expandedHeight: Math.min(vh * 0.8, maxHeight),
@@ -682,6 +687,7 @@
         ...common,
         anchor: 'bottom',
         offset: vh - bottomY,
+        height: Math.min(sized, maxHeight),
         maxHeight,
         tailOffset: bottomY - headY - 8,
         expandedHeight: Math.min(vh * 0.8, maxHeight),
@@ -694,11 +700,36 @@
       this.saveBubble();
     }
 
-    resizeBubble({ width, height }) {
-      this.bubbleSize.expanded = false;
-      this.bubbleSize.width = Math.round(Math.max(280, width));
-      this.bubbleSize.height = Math.round(Math.max(120, height));
-      this.placeBubble();
+    // Corner drag: the dragged corner follows the pointer and the opposite
+    // corner stays put. The bubble keeps that spot until it next closes; the
+    // size is remembered.
+    resizeBubble({ corner, rect, dx, dy }) {
+      const vw = innerWidth;
+      const vh = innerHeight;
+      const minW = Math.min(300, vw - 2 * MARGIN);
+      const minH = 180;
+      let { left, top, right, bottom } = rect;
+      if (corner.includes('w')) left = Math.min(Math.max(rect.left + dx, MARGIN), right - minW);
+      if (corner.includes('e')) right = Math.max(Math.min(rect.right + dx, vw - MARGIN), left + minW);
+      if (corner.includes('n')) top = Math.min(Math.max(rect.top + dy, MARGIN), bottom - minH);
+      if (corner.includes('s')) bottom = Math.max(Math.min(rect.bottom + dy, vh - MARGIN), top + minH);
+      const width = right - left;
+      const height = bottom - top;
+      this.bubbleSize = { width: Math.round(width), height: Math.round(height), expanded: false };
+      this.freePlaced = true;
+      const r = this.fox.rect();
+      this.bubble.place({
+        side: this.fox.edge === 'right' ? 'left' : 'right',
+        anchor: 'top',
+        offset: top,
+        left,
+        width,
+        height,
+        maxHeight: Math.max(height, vh - MARGIN - top),
+        tailOffset: r.top + r.height * 0.3 - top - 4,
+        expanded: false,
+        expandedHeight: 0,
+      });
     }
 
     saveBubble() {
@@ -740,6 +771,9 @@
 
       this.last = { question };
       this.bubble.startAnswer(question);
+      // The answer area just appeared; apply the remembered size unless the
+      // user has placed the bubble by hand.
+      if (!this.freePlaced) this.placeBubble();
       if (chatFailed) {
         this.bubble.setLine(this.line('chatUnreadable'), { onChar: this.blip });
         this.bubble.setNote("Couldn't read the chat on this page, so this answer doesn't use it.");
