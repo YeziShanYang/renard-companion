@@ -8,7 +8,9 @@
   const LOOK_MAX_MS = 40000;
   const WANDER_MIN_MS = 12000;
   const WANDER_MAX_MS = 30000;
-  const WANDER_SPEED = 70; // px/s: an amble, slower than walking back after a drag
+  const WANDER_SPEED = 70; // px/s: an amble, slower than running back after a drag
+  const WANDER_RANGE_Y = 110; // px above or below its home height a stroll may go
+  const RUN_SPEED = 170;
   const EDGE_GAP = 28; // closest the fox's body ever rests to the screen edge
   const MAX_INSET = 260; // farthest it wanders from the edge
   const LEAP = 120; // entrance: the last stretch is a pounce
@@ -50,7 +52,8 @@
       this.blipper = new R.Blipper();
       this.blip = () => this.blipper.blip();
       this.mode = 'entering';
-      this.yFrac = DEFAULT_POSITION.y;
+      this.yFrac = DEFAULT_POSITION.y; // current height (fraction of the usable range)
+      this.yHome = DEFAULT_POSITION.y; // remembered height; strolls stay near it
       this.inset = EDGE_GAP;
       this.clicks = [];
       this.port = null;
@@ -273,6 +276,7 @@
       const pos = this.state.position || DEFAULT_POSITION;
       const f = this.fox;
       this.yFrac = pos.y;
+      this.yHome = pos.y;
       this.inset = this.randomInset(pos.edge);
       f.setEdge(pos.edge);
       f.y = f.yFromFrac(pos.y);
@@ -284,9 +288,10 @@
       const target = f.xFor(pos.edge, this.inset);
       const dir = Math.sign(target - f.x);
       if (Math.abs(target - f.x) > LEAP + 24) {
-        f.sprite.play('walk');
-        if (!(await f.walkTo(target - dir * LEAP, 220)) || this.mode !== 'entering') return;
+        const path = R.meander({ x: f.x, y: f.y }, { x: target - dir * LEAP, y: f.y }, { wiggle: 28, stops: false, bounds: this.roamBounds() });
+        if (!(await f.followPath(path, 220)) || this.mode !== 'entering') return;
       }
+      f.faceIntoPage();
       f.sprite.play('pounce');
       await f.tweenTo(target, R.ANIMS.pounce.frames * R.ANIMS.pounce.ms);
       if (this.mode !== 'entering') return;
@@ -335,6 +340,13 @@
       return Math.round(pick);
     }
 
+    // Where the fox may roam: fully on screen, anywhere vertically.
+    roamBounds() {
+      const f = this.fox;
+      const { min, max } = f.yBounds();
+      return { minX: f.xFor('left', EDGE_GAP / 2), maxX: f.xFor('right', EDGE_GAP / 2), minY: min, maxY: max };
+    }
+
     scheduleWander() {
       clearTimeout(this.timers.wander);
       this.timers.wander = setTimeout(() => this.wander(), WANDER_MIN_MS + Math.random() * (WANDER_MAX_MS - WANDER_MIN_MS));
@@ -349,17 +361,18 @@
       }
       const f = this.fox;
       const next = this.randomInset(f.edge, this.inset);
-      const target = f.xFor(f.edge, next);
-      if (Math.abs(target - f.x) < 12) {
+      const home = f.yFromFrac(this.yHome);
+      const target = { x: f.xFor(f.edge, next), y: Math.round(f.clampY(home + (Math.random() * 2 - 1) * WANDER_RANGE_Y)) };
+      if (Math.hypot(target.x - f.x, target.y - f.y) < 16) {
         this.scheduleWander();
         return;
       }
       this.setMode('wandering');
-      f.face(target > f.x ? 'right' : 'left');
-      f.sprite.play('walk');
-      const arrived = await f.walkTo(target, WANDER_SPEED);
+      const path = R.meander({ x: f.x, y: f.y }, target, { wiggle: 40, bounds: this.roamBounds() });
+      const arrived = await f.followPath(path, WANDER_SPEED);
       if (!arrived || this.mode !== 'wandering') return;
       this.inset = next;
+      this.yFrac = f.fracFromY(f.y);
       f.faceIntoPage();
       this.setMode('idle');
       f.sprite.play('idle');
@@ -371,6 +384,7 @@
       if (this.mode !== 'wandering') return;
       this.fox.cancelMotion();
       this.inset = this.fox.insetOf(this.fox.edge);
+      this.yFrac = this.fox.fracFromY(this.fox.y);
       this.fox.faceIntoPage();
       this.setMode('idle');
       this.fox.sprite.play('idle');
@@ -548,17 +562,18 @@
       const f = this.fox;
       const edge = f.nearestEdge();
       const inset = this.randomInset(edge);
-      const target = f.xFor(edge, inset);
+      // Run back into the margin on a wobbly path, ending near the drop height.
+      const target = { x: f.xFor(edge, inset), y: Math.round(f.clampY(f.y + (Math.random() * 2 - 1) * 40)) };
       f.setEdge(edge);
-      this.yFrac = f.fracFromY(f.y);
       this.setMode('walking');
-      f.face(target >= f.x ? 'right' : 'left');
-      f.sprite.play('walk');
-      const arrived = await f.walkTo(target);
+      const path = R.meander({ x: f.x, y: f.y }, target, { wiggle: 56, bounds: this.roamBounds() });
+      const arrived = await f.followPath(path, RUN_SPEED);
       if (!arrived || this.mode !== 'walking') return;
       this.inset = inset;
+      this.yFrac = f.fracFromY(f.y);
+      this.yHome = this.yFrac;
       f.faceIntoPage();
-      R.send('renard:savePosition', { site: this.site.id, position: { edge, y: this.yFrac } }).catch(() => {});
+      R.send('renard:savePosition', { site: this.site.id, position: { edge, y: this.yHome } }).catch(() => {});
       this.rest();
     }
 

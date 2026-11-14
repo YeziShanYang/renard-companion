@@ -43,6 +43,7 @@
         "content/pixel.js",
         "content/markdown.js",
         "content/sprite.js",
+        "content/motion.js",
         "content/adapters/common.js",
         "content/adapters/claude.js",
         "content/adapters/chatgpt.js",

@@ -124,42 +124,81 @@
     cancelMotion() {
       if (this.motion) {
         cancelAnimationFrame(this.motion.raf);
+        clearTimeout(this.motion.timer);
         const done = this.motion.resolve;
         this.motion = null;
         done(false);
       }
     }
 
-    // Constant-speed walk along x. Resolves true on arrival, false if cancelled.
-    walkTo(targetX, speed = 160) {
+    // Constant-speed move to (x, y). Resolves true on arrival, false if
+    // cancelled (a drag, the bubble opening, hiding).
+    moveTo(targetX, targetY, speed = 160) {
       this.cancelMotion();
       if (R.reducedMotion()) {
         this.x = targetX;
+        this.y = targetY;
         this.apply();
         return Promise.resolve(true);
       }
       return new Promise((resolve) => {
         let last = performance.now();
-        const motion = { resolve, raf: 0 };
+        const motion = { resolve, raf: 0, timer: 0 };
         const step = (now) => {
           const dt = Math.min(50, now - last) / 1000;
           last = now;
-          const d = targetX - this.x;
+          const dx = targetX - this.x;
+          const dy = targetY - this.y;
+          const dist = Math.hypot(dx, dy);
           const move = speed * dt;
-          if (Math.abs(d) <= move) {
+          if (dist <= move) {
             this.x = targetX;
+            this.y = targetY;
             this.apply();
             this.motion = null;
             resolve(true);
             return;
           }
-          this.x += Math.sign(d) * move;
+          this.x += (dx / dist) * move;
+          this.y += (dy / dist) * move;
           this.apply();
           motion.raf = requestAnimationFrame(step);
         };
         motion.raf = requestAnimationFrame(step);
         this.motion = motion;
       });
+    }
+
+    // A cancellable wait, so a stop along a path can be interrupted too.
+    pause(ms) {
+      this.cancelMotion();
+      return new Promise((resolve) => {
+        const motion = { resolve, raf: 0, timer: 0 };
+        motion.timer = setTimeout(() => {
+          this.motion = null;
+          resolve(true);
+        }, ms);
+        this.motion = motion;
+      });
+    }
+
+    // Runs along waypoints from R.meander. The walk cycle's tempo follows
+    // the speed of each leg; stops play their animation in place.
+    async followPath(points, baseSpeed) {
+      for (const p of points) {
+        if (Math.abs(p.x - this.x) > 6) this.face(p.x > this.x ? 'right' : 'left');
+        const speed = baseSpeed * (p.speed || 1);
+        const ms = Math.round(Math.min(140, Math.max(55, (85 * 160) / speed)));
+        this.sprite.play('walk', { ms, keep: true });
+        if (!(await this.moveTo(p.x, p.y, speed))) return false;
+        if (p.pause) {
+          const anim = R.ANIMS[p.anim] ? p.anim : 'idle';
+          this.sprite.play(anim);
+          const length = anim === 'pounce' ? R.ANIMS.pounce.frames * R.ANIMS.pounce.ms : p.pause;
+          if (!(await this.pause(length))) return false;
+        }
+      }
+      return true;
     }
 
     // Eased move used for the entrance pounce and sliding away.
@@ -173,7 +212,7 @@
       const startX = this.x;
       const start = performance.now();
       return new Promise((resolve) => {
-        const motion = { resolve, raf: 0 };
+        const motion = { resolve, raf: 0, timer: 0 };
         const step = (now) => {
           const t = Math.min(1, (now - start) / duration);
           this.x = startX + (targetX - startX) * ease(t);

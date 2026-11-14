@@ -35,12 +35,18 @@
     }
 
     // Plays an animation. A later play() cancels the earlier one, including
-    // its onEnd callback.
-    play(name, { loop, reverse = false, onEnd } = {}) {
+    // its onEnd callback. ms overrides the frame duration; with keep, an
+    // already-running loop of the same animation only changes tempo instead
+    // of restarting (so a run can speed up and slow down smoothly).
+    play(name, { loop, reverse = false, onEnd, ms, keep = false } = {}) {
+      if (keep && this.name === name && this.anim && this.anim.loop) {
+        if (ms) this.anim.ms = ms;
+        return;
+      }
       clearTimeout(this.timer);
       const base = R.ANIMS[name];
       this.name = name;
-      this.anim = { ...base, loop: loop ?? base.loop, reverse, onEnd };
+      this.anim = { ...base, loop: loop ?? base.loop, reverse, onEnd, ms: ms || base.ms };
       this.step = 0;
       this.draw();
       this.schedule();
