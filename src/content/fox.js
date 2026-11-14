@@ -1,15 +1,21 @@
-// The fox on the page: position, edge tucking, walking, dragging, and the
-// small speech tag that shows canned lines while the bubble is closed.
+// The fox on the page: position in a side margin, walking, dragging, and
+// the small speech tag that shows canned lines while the bubble is closed.
+// Its horizontal place is an "inset": the gap between the screen edge it
+// belongs to and the near side of its body.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
 
   const SCALE = 3; // integer scaling only: 32px frames shown at 96px
   const SIZE = R.FRAME * SCALE;
-  const TUCK = 8 * SCALE; // tail columns hidden past the screen edge
+  // Hit area (the drawn fox) inside the 96px frame box; matches .fox-hit in CSS.
+  const HIT_LEFT = 9;
+  const HIT_WIDTH = 78;
   const TOP_EMPTY = 13 * SCALE; // empty rows above the fox's ears in each frame
   const DRAG_THRESHOLD = 5;
 
   R.Fox = class {
+    static bodyWidth = HIT_WIDTH;
+
     constructor({ sheet, fallback, onActivate, onDragStart, onDragEnd, onHover }) {
       this.onActivate = onActivate;
       this.onDragStart = onDragStart;
@@ -46,8 +52,13 @@
 
     // ---- geometry ---------------------------------------------------------
 
-    edgeX(edge) {
-      return edge === 'left' ? -TUCK : innerWidth - SIZE + TUCK;
+    // Box x for a fox whose body sits `inset` px from the given screen edge.
+    xFor(edge, inset) {
+      return edge === 'left' ? inset - HIT_LEFT : innerWidth - inset - HIT_LEFT - HIT_WIDTH;
+    }
+
+    insetOf(edge) {
+      return edge === 'left' ? this.x + HIT_LEFT : innerWidth - (this.x + HIT_LEFT + HIT_WIDTH);
     }
 
     offscreenX(edge) {
@@ -100,19 +111,10 @@
       this.el.dataset.edge = edge;
     }
 
-    placeAt(edge, yFrac) {
-      this.cancelMotion();
-      this.setEdge(edge);
-      this.x = this.edgeX(edge);
-      this.y = this.yFromFrac(yFrac);
-      this.faceIntoPage();
-      this.apply();
-    }
-
-    // Keeps the fox on its edge after the window resizes.
-    reflow(yFrac) {
+    // Keeps the fox in its margin after the window resizes.
+    reflow(yFrac, inset) {
       if (this.motion || this.press) return;
-      this.x = this.edgeX(this.edge);
+      this.x = this.xFor(this.edge, inset);
       this.y = this.yFromFrac(yFrac);
       this.apply();
     }

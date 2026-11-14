@@ -6,8 +6,8 @@
 
 ## What it does
 
-Renard is a pixel-art fox that lives at the edge of the browser window on
-claude.ai and chatgpt.com. Click it, ask a question, and the answer comes from
+Renard is a pixel-art fox that lives in the side margins of the browser
+window on claude.ai and chatgpt.com, wandering a little while it waits. Click it, ask a question, and the answer comes from
 your own Anthropic, OpenAI, or Gemini API key, streamed into a large, readable
 panel.
 With **Read chat** on, the conversation open on the page is sent along as
@@ -72,7 +72,7 @@ the key check.
 | Click the fox | Opens the bubble with a text box |
 | Enter / Shift+Enter | Ask / new line |
 | **Read chat** switch | Include the conversation on the page |
-| Drag the fox | Drop it anywhere; it walks to the nearest edge (remembered per site) |
+| Drag the fox | Drop it anywhere; it walks into the nearest side margin (side and height remembered per site) |
 | Esc or ✕ | Close the bubble |
 | Expand button / corner grip | Larger reading view / custom size (remembered) |
 | Alt+Shift+F | Open or close the bubble |

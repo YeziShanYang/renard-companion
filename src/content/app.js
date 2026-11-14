@@ -6,6 +6,12 @@
   const SLEEP_AFTER_MS = 5 * 60 * 1000;
   const LOOK_MIN_MS = 20000;
   const LOOK_MAX_MS = 40000;
+  const WANDER_MIN_MS = 12000;
+  const WANDER_MAX_MS = 30000;
+  const WANDER_SPEED = 70; // px/s: an amble, slower than walking back after a drag
+  const EDGE_GAP = 28; // closest the fox's body ever rests to the screen edge
+  const MAX_INSET = 260; // farthest it wanders from the edge
+  const LEAP = 120; // entrance: the last stretch is a pounce
   const MARGIN = 12;
   const DEFAULT_POSITION = { edge: 'right', y: 0.7 };
   const DIZZY_CLICKS = 10;
@@ -45,6 +51,7 @@
       this.blip = () => this.blipper.blip();
       this.mode = 'entering';
       this.yFrac = DEFAULT_POSITION.y;
+      this.inset = EDGE_GAP;
       this.clicks = [];
       this.port = null;
       this.last = null;
@@ -159,7 +166,9 @@
         resizeQueued = true;
         requestAnimationFrame(() => {
           resizeQueued = false;
-          this.fox.reflow(this.yFrac);
+          const { min, max } = this.marginRange(this.fox.edge);
+          this.inset = Math.min(max, Math.max(min, this.inset));
+          this.fox.reflow(this.yFrac, this.inset);
           if (this.bubble.isOpen) this.placeBubble();
         });
       };
@@ -220,7 +229,8 @@
         this.wake().then(() => {
           if (this.mode === 'waking') this.idle();
         });
-      } else if (blocked && this.mode === 'idle') {
+      } else if (blocked && (this.mode === 'idle' || this.mode === 'wandering')) {
+        this.haltWander();
         this.sleepBlocked();
       }
     }
@@ -251,14 +261,22 @@
       const pos = this.state.position || DEFAULT_POSITION;
       const f = this.fox;
       this.yFrac = pos.y;
+      this.inset = this.randomInset(pos.edge);
       f.setEdge(pos.edge);
       f.y = f.yFromFrac(pos.y);
       f.x = f.offscreenX(pos.edge);
       f.faceIntoPage();
       f.apply();
       this.setMode('entering');
+      // Trot in from off-screen, then pounce the last stretch into place.
+      const target = f.xFor(pos.edge, this.inset);
+      const dir = Math.sign(target - f.x);
+      if (Math.abs(target - f.x) > LEAP + 24) {
+        f.sprite.play('walk');
+        if (!(await f.walkTo(target - dir * LEAP, 220)) || this.mode !== 'entering') return;
+      }
       f.sprite.play('pounce');
-      await f.tweenTo(f.edgeX(pos.edge), R.ANIMS.pounce.frames * R.ANIMS.pounce.ms);
+      await f.tweenTo(target, R.ANIMS.pounce.frames * R.ANIMS.pounce.ms);
       if (this.mode !== 'entering') return;
       const blocked = this.blocker();
       if (blocked) {
@@ -275,6 +293,75 @@
       this.fox.sprite.play('idle');
       this.scheduleLook();
       this.scheduleSleep();
+      this.scheduleWander();
+    }
+
+    // ---- margins and wandering ------------------------------------------
+
+    // Range of insets (gap from the screen edge to the fox's body) that keep
+    // the fox in the margin beside the site's content column, away from both
+    // the screen edge and the column. The column is measured from the site's
+    // message input; without one, a fraction of the window is used.
+    marginRange(edge) {
+      const vw = innerWidth;
+      const comp = attempt(() => this.adapter.composerRect());
+      let room = Math.min(MAX_INSET + 100, vw * 0.2);
+      if (comp && comp.width < vw * 0.9) room = edge === 'left' ? comp.left : vw - comp.right;
+      const max = Math.min(MAX_INSET, room - R.Fox.bodyWidth - 16);
+      return { min: EDGE_GAP, max: Math.max(EDGE_GAP, max) };
+    }
+
+    // A random resting spot in the margin, preferably a little away from `avoid`.
+    randomInset(edge, avoid) {
+      const { min, max } = this.marginRange(edge);
+      const span = max - min;
+      if (span < 8) return min;
+      let pick = min + Math.random() * span;
+      for (let i = 0; i < 6 && avoid != null && Math.abs(pick - avoid) < Math.min(48, span / 2); i++) {
+        pick = min + Math.random() * span;
+      }
+      return Math.round(pick);
+    }
+
+    scheduleWander() {
+      clearTimeout(this.timers.wander);
+      this.timers.wander = setTimeout(() => this.wander(), WANDER_MIN_MS + Math.random() * (WANDER_MAX_MS - WANDER_MIN_MS));
+    }
+
+    // Ambles to another spot in the same margin. Not an interaction, so the
+    // nap timer keeps running.
+    async wander() {
+      if (this.mode !== 'idle' || this.bubble.isOpen || this.hidden || R.reducedMotion()) {
+        this.scheduleWander();
+        return;
+      }
+      const f = this.fox;
+      const next = this.randomInset(f.edge, this.inset);
+      const target = f.xFor(f.edge, next);
+      if (Math.abs(target - f.x) < 12) {
+        this.scheduleWander();
+        return;
+      }
+      this.setMode('wandering');
+      f.face(target > f.x ? 'right' : 'left');
+      f.sprite.play('walk');
+      const arrived = await f.walkTo(target, WANDER_SPEED);
+      if (!arrived || this.mode !== 'wandering') return;
+      this.inset = next;
+      f.faceIntoPage();
+      this.setMode('idle');
+      f.sprite.play('idle');
+      this.scheduleWander();
+    }
+
+    // Stops a wander in place (before opening the bubble, hiding, etc.).
+    haltWander() {
+      if (this.mode !== 'wandering') return;
+      this.fox.cancelMotion();
+      this.inset = this.fox.insetOf(this.fox.edge);
+      this.fox.faceIntoPage();
+      this.setMode('idle');
+      this.fox.sprite.play('idle');
     }
 
     // Back to the resting pose: idle, or asleep while setup is incomplete.
@@ -347,6 +434,7 @@
     }
 
     dizzy() {
+      this.haltWander();
       this.closeBubble(false);
       this.setMode('dizzy');
       this.fox.say(this.line('dizzy'), { onChar: this.blip });
@@ -368,9 +456,11 @@
     async hide() {
       if (this.hidden) return;
       this.hidden = true;
+      this.haltWander();
       this.closeBubble(false);
       clearTimeout(this.timers.look);
       clearTimeout(this.timers.sleep);
+      clearTimeout(this.timers.wander);
       this.setMode('hidden');
       this.fox.say(this.line('hidden'), { onChar: this.blip });
       await new Promise((resolve) => this.fox.sprite.play('sleep', { onEnd: resolve }));
@@ -417,6 +507,7 @@
         this.dizzy();
         return;
       }
+      this.haltWander();
       if (['entering', 'dizzy', 'hidden', 'walking', 'dragging'].includes(this.mode)) return;
       if (this.bubble.isOpen) {
         this.closeBubble(false);
@@ -444,7 +535,8 @@
     async dragEnd() {
       const f = this.fox;
       const edge = f.nearestEdge();
-      const target = f.edgeX(edge);
+      const inset = this.randomInset(edge);
+      const target = f.xFor(edge, inset);
       f.setEdge(edge);
       this.yFrac = f.fracFromY(f.y);
       this.setMode('walking');
@@ -452,6 +544,7 @@
       f.sprite.play('walk');
       const arrived = await f.walkTo(target);
       if (!arrived || this.mode !== 'walking') return;
+      this.inset = inset;
       f.faceIntoPage();
       R.send('renard:savePosition', { site: this.site.id, position: { edge, y: this.yFrac } }).catch(() => {});
       this.rest();
@@ -460,6 +553,7 @@
     // ---- bubble -----------------------------------------------------------
 
     openBubble(text) {
+      this.haltWander();
       const blocked = this.blocker();
       this.fox.hush();
       this.bubble.setBlocked(blocked && blocked.detail);
