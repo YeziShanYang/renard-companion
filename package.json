@@ -6,13 +6,9 @@
   "type": "module",
   "scripts": {
     "icons": "node scripts/make-icons.mjs",
-    "postinstall": "node scripts/make-icons.mjs",
-    "prestart": "node scripts/make-icons.mjs",
     "start": "web-ext run --source-dir src --start-url https://claude.ai/new",
-    "prestart:chrome": "node scripts/make-icons.mjs",
     "start:chrome": "web-ext run --source-dir src --target chromium --start-url https://claude.ai/new",
     "lint": "web-ext lint --source-dir src",
-    "prebuild": "node scripts/make-icons.mjs",
     "build": "node scripts/package.mjs",
     "test": "node --test \"test/*.test.mjs\""
   },

@@ -24,8 +24,6 @@ Chromium-based browser.
 npm install
 ```
 
-`npm install` also generates the toolbar icons (see below).
-
 ### Sprite sheet
 
 Renard uses "2D Pixel Art Fox Sprites" by Elthen. The license does not allow
@@ -39,10 +37,9 @@ src/assets/fox-sprite-sheet.png
 The sheet is 448×224 px: 32×32 frames in a 14-column × 7-row grid, fox facing
 right. Without it, Renard still works and shows a static placeholder fox.
 
-The icons in `src/icons/` are cut from the sheet (Renard standing) by
-`scripts/make-icons.mjs`, so they are git-ignored too. Without the sheet the
-script draws a fallback fox head. It runs on `npm install`, `npm start`, and
-`npm run build`; after adding or changing the sheet, run `npm run icons`.
+The toolbar icon is a separate, original fox head drawn for Renard (in
+`scripts/make-icons.mjs`), so it is committed and does not depend on the sheet.
+Run `npm run icons` after editing that art.
 
 ### Run in Firefox
 
@@ -123,7 +120,7 @@ src/
   options/               settings page
   lines.json             canned fox lines
   fonts/                 Silkscreen (SIL Open Font License)
-  icons/                 toolbar icons (generated, git-ignored)
+  icons/                 toolbar icons (original fox head, from scripts/make-icons.mjs)
 scripts/                 icon generator, store packaging
 test/                    unit tests (node --test)
 ```
@@ -150,7 +147,7 @@ test/                    unit tests (node --test)
 ```sh
 npm test         # unit tests: markdown, SSE parsing, providers, prompt, paths, shortcuts
 npm run lint     # web-ext lint (Mozilla's add-on linter)
-npm run icons    # regenerate src/icons/ from the sprite sheet
+npm run icons    # regenerate src/icons/ from the fox head art
 npm run build    # store zips: dist/renard-firefox-<version>.zip, dist/renard-chrome-<version>.zip
 ```
 

@@ -1,8 +1,6 @@
 # Licensed art: Elthen's Common Sense License forbids redistributing the
 # assets, so the sprite sheet stays out of version control.
 src/assets/fox-sprite-sheet.png
-# Icons are cut from the sprite sheet by scripts/make-icons.mjs.
-src/icons/*.png
 
 # Build output
 web-ext-artifacts/

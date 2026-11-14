@@ -7,9 +7,9 @@ each.
 ## Before submitting to either store
 
 1. **Art permission.** Email Elthen (address on the license page) describing
-   Renard and confirm the use. The packages include the sprite sheet and icons
-   cut from it, which the license allows in a project; the repository itself
-   must not contain them.
+   Renard and confirm the use. The packages include the sprite sheet, which the
+   license allows in a project; the repository itself must not contain it. The
+   icon is original art and needs no permission.
 2. **Privacy policy at a public URL.** Fill in the contact line in
    [`PRIVACY.md`](../PRIVACY.md) and host it somewhere public: the repository
    once it is public, GitHub Pages, or a public gist. Both stores require the
@@ -26,7 +26,7 @@ each.
    This writes `dist/renard-firefox-<version>.zip` and
    `dist/renard-chrome-<version>.zip`, and lints the Firefox package.
 5. **Listing assets.**
-   - Icon: `src/icons/icon-128.png` (generated).
+   - Icon: `src/icons/icon-128.png`.
    - Screenshots: at least one 1280×800 (Chrome also accepts 640×400) showing
      the fox and an answer.
    - Chrome small promo tile: 440×280.
