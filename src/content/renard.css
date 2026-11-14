@@ -332,9 +332,14 @@
   overflow-wrap: anywhere;
 }
 
-.head-actions {
+.head-actions,
+.head-group {
   display: flex;
   gap: 8px;
+}
+
+.head-actions {
+  gap: 16px;
 }
 
 /* ---- buttons ------------------------------------------------------------ */
@@ -484,14 +489,7 @@
   min-height: 0;
 }
 
-.qa-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-
 .asked {
-  flex: 1;
   margin: 3px 0 0;
   color: var(--muted);
   font: 13px/1.4 var(--font-read);

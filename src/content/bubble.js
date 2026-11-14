@@ -31,21 +31,28 @@
       this.expandBtn = iconButton('expand', 'Expand', () => H.onExpand(), { 'aria-pressed': 'false' });
       this.expandBtn.append(R.icon('collapse'));
       const closeBtn = iconButton('close', 'Close', () => H.onClose());
-      const head = h('header', { class: 'head' }, [this.line, h('div', { class: 'head-actions' }, [this.expandBtn, closeBtn])]);
+
+      // One row of controls: answer actions (shown once there is an answer),
+      // then the bubble's own expand and close.
+      this.copyBtn = iconButton('copy', 'Copy answer', () => this.copy(), { 'data-copied': 'false' });
+      this.copyBtn.classList.add('copy-btn');
+      this.copyBtn.append(R.icon('check'));
+      this.clearBtn = iconButton('clear', 'Clear question and answer', () => H.onClear());
+      this.answerActions = h('div', { class: 'head-group', hidden: true }, [this.copyBtn, this.clearBtn]);
+      const head = h('header', { class: 'head' }, [
+        this.line,
+        h('div', { class: 'head-actions' }, [this.answerActions, h('div', { class: 'head-group' }, [this.expandBtn, closeBtn])]),
+      ]);
 
       this.noticeText = h('p', { class: 'notice-text' });
       this.settingsBtn = h('button', { class: 'btn', type: 'button', onclick: () => H.onOpenSettings() }, 'Open settings');
       this.notice = h('div', { class: 'notice', hidden: true }, [this.noticeText, this.settingsBtn]);
 
       this.askedText = h('span', { class: 'asked-text' });
-      this.copyBtn = iconButton('copy', 'Copy answer', () => this.copy(), { 'data-copied': 'false' });
-      this.copyBtn.classList.add('copy-btn');
-      this.copyBtn.append(R.icon('check'));
-      this.clearBtn = iconButton('clear', 'Clear question and answer', () => H.onClear());
       this.note = h('p', { class: 'note', hidden: true });
       this.answer = h('div', { class: 'answer', tabindex: '0', role: 'region', 'aria-label': 'Answer' });
       this.qa = h('div', { class: 'qa', hidden: true }, [
-        h('div', { class: 'qa-head' }, [h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]), this.copyBtn, this.clearBtn]),
+        h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]),
         this.note,
         h('div', { class: 'answer-box' }, [this.answer]),
       ]);
@@ -223,6 +230,7 @@
 
     startAnswer(question) {
       this.qa.hidden = false;
+      this.answerActions.hidden = false;
       this.askedText.textContent = question;
       this.setNote('');
       this.setNotice(null);
@@ -235,6 +243,7 @@
     reset() {
       this.setAnswer('', { streaming: false });
       this.qa.hidden = true;
+      this.answerActions.hidden = true;
       this.askedText.textContent = '';
       this.setNote('');
       this.setNotice(null);
