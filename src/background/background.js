@@ -57,13 +57,15 @@ function loadAssets() {
 async function publicState(siteId) {
   const s = await loadSettings();
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
-  const model = s.models[provider.id];
+  const local = provider.id === 'local' ? R.LOCAL_MODELS[s.localModel.key] || R.LOCAL_MODELS['gemma-3-1b'] : null;
+  const model = local || s.models[provider.id];
   return {
     site: siteId,
     enabled: s.sites[siteId] !== false,
     provider: provider.id,
     providerName: provider.name,
-    hasKey: Boolean(s.apiKeys[provider.id]),
+    // For the built-in provider, "has a key" means the model is downloaded.
+    hasKey: local ? Boolean(s.localModel.ready[local.id]) : Boolean(s.apiKeys[provider.id]),
     modelName: model ? model.name : null,
     apiPermission: await hasOrigins(provider.origins),
     prefs: s.prefs,
@@ -129,7 +131,95 @@ const handlers = {
     await ext.runtime.openOptionsPage();
     return { ok: true };
   },
+
+  // Built-in model, from the settings page.
+  'renard:localRemove': async (msg) => {
+    if (!R.LOCAL_MODELS[msg.key]) throw new Error('Unknown model');
+    await engineRequest({ type: 'remove', key: msg.key });
+    const { localModel } = await loadSettings();
+    delete localModel.ready[msg.key];
+    await saveSettings({ localModel });
+    return { ok: true };
+  },
 };
+
+// ---------------------------------------------------------------------------
+// Built-in model engine. Firefox's background page runs it directly (it has a
+// DOM and WebGPU); Chrome's service worker hosts it in an offscreen document
+// and talks to it over a port.
+
+const ENGINE_IN_PAGE = typeof document !== 'undefined';
+let creatingOffscreen = null;
+
+async function ensureOffscreen() {
+  const url = ext.runtime.getURL('engine/offscreen.html');
+  const existing = await ext.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [url] });
+  if (existing.length) return;
+  creatingOffscreen =
+    creatingOffscreen ||
+    ext.offscreen
+      .createDocument({ url: 'engine/offscreen.html', reasons: ['WORKERS'], justification: 'Runs the built-in Gemma model on the GPU.' })
+      .finally(() => {
+        creatingOffscreen = null;
+      });
+  await creatingOffscreen;
+}
+
+// Sends one request to the engine. onEvent receives progress and text;
+// aborting the signal cancels the request.
+async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
+  if (ENGINE_IN_PAGE) {
+    const engine = await import('../engine/engine.js');
+    try {
+      return await engine.handle(msg.type, msg, onEvent, signal);
+    } catch (err) {
+      throw new ProviderError(err.kind || 'unknown', String((err && err.message) || err));
+    }
+  }
+  await ensureOffscreen();
+  return new Promise((resolve, reject) => {
+    const port = ext.runtime.connect({ name: 'renard:engine' });
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      port.disconnect();
+      fn(value);
+    };
+    port.onMessage.addListener((m) => {
+      if (m.type === 'result') finish(resolve, m.result);
+      else if (m.type === 'error') finish(reject, new ProviderError(m.kind || 'unknown', m.message));
+      else onEvent(m);
+    });
+    port.onDisconnect.addListener(() => finish(reject, new ProviderError('network', 'The built-in model stopped unexpectedly.')));
+    if (signal) {
+      if (signal.aborted) finish(reject, new ProviderError('aborted', 'Request cancelled'));
+      signal.addEventListener('abort', () => finish(reject, new ProviderError('aborted', 'Request cancelled')));
+    }
+    port.postMessage(msg);
+  });
+}
+
+async function answerLocally(s, msg, post, signal) {
+  const model = R.LOCAL_MODELS[s.localModel.key] || R.LOCAL_MODELS['gemma-3-1b'];
+  if (!s.localModel.ready[model.id]) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
+  let chat = null;
+  if (msg.chat && Array.isArray(msg.chat.turns)) {
+    chat = { ...trimChat(msg.chat.turns, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars }), siteName: msg.chat.siteName };
+    post({ type: 'context', included: chat.turns.length, total: chat.total, partial: chat.partial });
+  }
+  const question = String(msg.question || '').slice(0, 20000);
+  await engineRequest(
+    { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat), maxNewTokens: 1024 },
+    {
+      signal,
+      onEvent: (e) => {
+        if (e.type === 'delta') post({ type: 'delta', text: e.text });
+        else if (e.type === 'loading') post({ type: 'loading' });
+      },
+    },
+  );
+}
 
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender.id !== ext.runtime.id) return false;
@@ -150,6 +240,7 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 async function answer(msg, post, signal) {
   const s = await loadSettings();
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
+  if (provider.id === 'local') return answerLocally(s, msg, post, signal);
   const apiKey = s.apiKeys[provider.id];
   if (!apiKey) throw new ProviderError('keyMissing', 'No API key set');
   if (!(await hasOrigins(provider.origins))) {
@@ -180,6 +271,28 @@ async function answer(msg, post, signal) {
     onDelta: (text) => post({ type: 'delta', text }),
   });
 }
+
+// Settings page: downloads (and loads) a built-in model, reporting progress.
+// The page pings over the port, which keeps Firefox's background page awake
+// through a long download.
+ext.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'renard:local' || port.sender?.id !== ext.runtime.id) return;
+  const controller = new AbortController();
+  port.onDisconnect.addListener(() => controller.abort());
+  port.onMessage.addListener(async (msg) => {
+    if (!msg || msg.type !== 'prepare' || !R.LOCAL_MODELS[msg.key]) return;
+    const model = R.LOCAL_MODELS[msg.key];
+    try {
+      const result = await engineRequest({ type: 'prepare', key: model.id }, { signal: controller.signal, onEvent: (e) => port.postMessage(e) });
+      const { localModel } = await loadSettings();
+      localModel.ready[model.id] = { dtype: result.dtype, bytes: result.bytes || model.sizes[result.dtype] || 0, at: Date.now() };
+      await saveSettings({ localModel });
+      port.postMessage({ type: 'ready', ...localModel.ready[model.id] });
+    } catch (err) {
+      if (err.kind !== 'aborted') port.postMessage({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err) });
+    }
+  });
+});
 
 ext.runtime.onConnect.addListener((port) => {
   if (port.name !== 'renard:ask' || port.sender?.id !== ext.runtime.id) return;
@@ -231,7 +344,7 @@ async function updateBadge() {
 
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (['provider', 'apiKeys', 'models', 'sites', 'prefs'].some((k) => k in changes)) {
+  if (['provider', 'apiKeys', 'models', 'sites', 'prefs', 'localModel'].some((k) => k in changes)) {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }

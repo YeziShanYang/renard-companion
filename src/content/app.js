@@ -32,6 +32,8 @@
     rateLimited: { line: 'networkError' },
     network: { line: 'networkError' },
     refused: { line: 'refused', discard: true },
+    localMissing: { line: 'localMissing', settings: true },
+    noGpu: { line: 'noGpu', settings: true },
     unknown: { line: 'networkError' },
   };
 
@@ -280,6 +282,9 @@
 
     blocker() {
       const s = this.state;
+      if (!s.hasKey && s.provider === 'local') {
+        return { line: 'localMissing', detail: `Download ${s.modelName || 'the built-in model'} in settings to get started.` };
+      }
       if (!s.hasKey) return { line: 'noKey', detail: `Add your ${s.providerName} API key in settings to get started.` };
       if (!s.apiPermission) return { line: 'noPermission', detail: `Allow Renard to reach ${s.providerName} in settings.` };
       return null;
@@ -798,13 +803,26 @@
       }
       this.port = port;
       let text = '';
+      // Pings keep the background awake through a long answer (Firefox
+      // otherwise suspends an idle background page after about 30 s).
+      const keepAlive = setInterval(() => {
+        try {
+          port.postMessage({ type: 'ping' });
+        } catch {
+          clearInterval(keepAlive);
+        }
+      }, 10000);
       const release = () => {
+        clearInterval(keepAlive);
         if (this.port === port) this.port = null;
         port.disconnect();
       };
       port.onMessage.addListener((m) => {
         if (this.port !== port || !m) return;
-        if (m.type === 'context') {
+        if (m.type === 'loading') {
+          // The built-in model is loading; say so unless text already came.
+          if (!text) this.bubble.setLine(this.line('localLoading'), { onChar: this.blip });
+        } else if (m.type === 'context') {
           if (m.partial) this.bubble.setNote(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
         } else if (m.type === 'delta') {
           text += m.text;
@@ -818,6 +836,7 @@
         }
       });
       port.onDisconnect.addListener(() => {
+        clearInterval(keepAlive);
         if (this.port !== port) return;
         this.port = null;
         this.failed({ kind: 'network', message: 'Lost the connection to the extension. Try again.' }, text);
@@ -859,6 +878,9 @@
           return '';
         case 'rateLimited':
           return `${p} is rate limiting requests right now.`;
+        case 'localMissing':
+        case 'noGpu':
+          return m.message;
         default:
           return m.message ? `${p}: ${m.message}` : '';
       }
