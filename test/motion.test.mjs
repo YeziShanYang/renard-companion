@@ -42,16 +42,18 @@ test('every waypoint stays inside the bounds', () => {
   }
 });
 
-test('speeds vary and stops can be turned off', () => {
-  const speeds = new Set();
-  let stops = 0;
+test('speeds vary gently, hops happen, and hops can be turned off', () => {
+  const speeds = [];
+  let hops = 0;
   for (let seed = 1; seed <= 30; seed++) {
     for (const p of meander({ x: 0, y: 0 }, { x: 300, y: 0 }, { rand: seeded(seed) })) {
-      speeds.add(p.speed.toFixed(2));
-      if (p.pause) stops++;
+      speeds.push(p.speed);
+      if (p.hop) hops++;
+      assert.equal(p.pause, undefined, 'no stops along a path');
     }
-    assert.ok(meander({ x: 0, y: 0 }, { x: 300, y: 0 }, { stops: false, rand: seeded(seed) }).every((p) => !p.pause));
+    assert.ok(meander({ x: 0, y: 0 }, { x: 300, y: 0 }, { hops: false, rand: seeded(seed) }).every((p) => !p.hop));
   }
-  assert.ok(speeds.size > 10);
-  assert.ok(stops > 0, 'some strolls stop along the way');
+  assert.ok(Math.min(...speeds) >= 0.85 && Math.max(...speeds) <= 1.25, 'speed changes stay small');
+  assert.ok(new Set(speeds.map((v) => v.toFixed(2))).size > 10);
+  assert.ok(hops > 0, 'some runs include a hop');
 });

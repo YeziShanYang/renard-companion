@@ -313,7 +313,7 @@
       const target = f.xFor(pos.edge, this.inset);
       const dir = Math.sign(target - f.x);
       if (Math.abs(target - f.x) > LEAP + 24) {
-        const path = R.meander({ x: f.x, y: f.y }, { x: target - dir * LEAP, y: f.y }, { wiggle: 28, stops: false, bounds: this.roamBounds() });
+        const path = R.meander({ x: f.x, y: f.y }, { x: target - dir * LEAP, y: f.y }, { wiggle: 28, hops: false, bounds: this.roamBounds() });
         if (!(await f.followPath(path, 220)) || this.mode !== 'entering') return;
       }
       f.faceIntoPage();

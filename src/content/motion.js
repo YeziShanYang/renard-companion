@@ -1,16 +1,17 @@
 // Path planning for the fox's runs and strolls. Instead of heading straight
 // for its target, the fox follows a few waypoints pushed off the straight
-// line, at varied speeds, with the odd stop to look around or hop.
+// line, at gently varied speeds, with the odd hop taken in stride. It never
+// stops along the way, so the motion stays continuous.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
 
   const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
-  // from, to: { x, y }. Returns waypoints { x, y, speed, pause, anim } ending
-  // exactly at `to`. speed is a multiplier of the caller's base speed; pause
-  // (ms) and anim ('idle' | 'pounce') describe a stop at that waypoint.
+  // from, to: { x, y }. Returns waypoints { x, y, speed, hop } ending exactly
+  // at `to`. speed is a multiplier of the caller's base speed; hop means the
+  // fox jumps while running the leg to that waypoint.
   // bounds: { minX, maxX, minY, maxY } that every waypoint stays inside.
-  R.meander = function (from, to, { wiggle = 48, bounds = null, stops = true, rand = Math.random } = {}) {
+  R.meander = function (from, to, { wiggle = 48, bounds = null, hops = true, rand = Math.random } = {}) {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const len = Math.hypot(dx, dy);
@@ -27,17 +28,15 @@
         const t = (i + (rand() - 0.5) * 0.5) / (n + 1);
         const off = side * (0.35 + rand() * 0.65) * wiggle * Math.min(1, len / 160);
         side = -side;
-        const stop = stops ? rand() : 1;
         points.push({
           x: from.x + dx * t + nx * off,
           y: from.y + dy * t + ny * off,
-          speed: 0.7 + rand() * 0.7,
-          pause: stop < 0.12 ? 1 : stop < 0.3 ? 250 + rand() * 450 : 0,
-          anim: stop < 0.12 ? 'pounce' : 'idle',
+          speed: 0.85 + rand() * 0.4,
+          hop: hops && rand() < 0.2,
         });
       }
     }
-    points.push({ x: to.x, y: to.y, speed: 0.8 + rand() * 0.4, pause: 0, anim: 'idle' });
+    points.push({ x: to.x, y: to.y, speed: 0.85 + rand() * 0.3, hop: false });
     if (bounds) {
       for (const p of points) {
         p.x = clamp(p.x, bounds.minX, bounds.maxX);

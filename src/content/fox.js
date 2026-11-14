@@ -182,23 +182,34 @@
       });
     }
 
-    // Runs along waypoints from R.meander. The walk cycle's tempo follows
-    // the speed of each leg; stops play their animation in place.
+    // Runs along waypoints from R.meander without stopping. The walk cycle's
+    // tempo follows each leg's speed; a hop plays the pounce frames while the
+    // fox keeps moving, then drops back into the walk cycle.
     async followPath(points, baseSpeed) {
+      this.hopping = false;
       for (const p of points) {
         if (Math.abs(p.x - this.x) > 6) this.face(p.x > this.x ? 'right' : 'left');
         const speed = baseSpeed * (p.speed || 1);
-        const ms = Math.round(Math.min(140, Math.max(55, (85 * 160) / speed)));
-        this.sprite.play('walk', { ms, keep: true });
-        if (!(await this.moveTo(p.x, p.y, speed))) return false;
-        if (p.pause) {
-          const anim = R.ANIMS[p.anim] ? p.anim : 'idle';
-          this.sprite.play(anim);
-          const length = anim === 'pounce' ? R.ANIMS.pounce.frames * R.ANIMS.pounce.ms : p.pause;
-          if (!(await this.pause(length))) return false;
+        this.walkMs = Math.round(Math.min(140, Math.max(55, (85 * 160) / speed)));
+        if (p.hop && !this.hopping) this.hop();
+        else if (!this.hopping) this.sprite.play('walk', { ms: this.walkMs, keep: true });
+        if (!(await this.moveTo(p.x, p.y, speed))) {
+          this.hopping = false;
+          return false;
         }
       }
+      this.hopping = false;
       return true;
+    }
+
+    hop() {
+      this.hopping = true;
+      this.sprite.play('pounce', {
+        onEnd: () => {
+          this.hopping = false;
+          this.sprite.play('walk', { ms: this.walkMs });
+        },
+      });
     }
 
     // Eased move used for the entrance pounce and sliding away.
