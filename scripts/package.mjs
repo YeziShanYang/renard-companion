@@ -19,6 +19,10 @@ if (!fs.existsSync(path.join(SRC, 'assets', 'fox-sprite-sheet.png'))) {
   console.error('Missing src/assets/fox-sprite-sheet.png: store builds need the sprite sheet.');
   process.exit(1);
 }
+if (!fs.existsSync(path.join(SRC, 'vendor', 'transformers', 'transformers.min.js'))) {
+  console.error('Missing src/vendor/transformers/: run npm install (or npm run vendor).');
+  process.exit(1);
+}
 
 const manifest = JSON.parse(fs.readFileSync(path.join(SRC, 'manifest.json'), 'utf8'));
 
@@ -26,6 +30,9 @@ const TARGETS = {
   // Firefox runs background.scripts; service_worker is ignored there.
   firefox: (m) => {
     delete m.background.service_worker;
+    // The built-in model runs in Firefox's background page; offscreen
+    // documents are Chrome's.
+    m.permissions = m.permissions.filter((p) => p !== 'offscreen');
     return m;
   },
   // Chrome runs background.service_worker and does not know Firefox's keys.

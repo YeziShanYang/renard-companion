@@ -1,6 +1,8 @@
 # Licensed art: Elthen's Common Sense License forbids redistributing the
 # assets, so the sprite sheet stays out of version control.
 src/assets/fox-sprite-sheet.png
+# On-device model engine, copied from node_modules by scripts/vendor.mjs.
+src/vendor/
 
 # Build output
 web-ext-artifacts/
