@@ -18,8 +18,28 @@
   let assets = null;
   let mounting = null;
   let again = false;
+  let retired = false;
+
+  // One Renard per page. Reloading or updating the extension starts a new
+  // copy of this script while an older copy's fox is still on the page:
+  // Firefox injects the new copy into open tabs and leaves the old DOM
+  // behind, and Chrome keeps orphaned scripts running. Ask older copies to
+  // step aside (their listeners run synchronously), then remove anything
+  // they left. This copy listens only after asking, so it never retires
+  // itself.
+  const REPLACE_EVENT = 'renard-companion:replace';
+  document.dispatchEvent(new Event(REPLACE_EVENT));
+  for (const el of document.querySelectorAll('renard-companion')) el.remove();
+  document.addEventListener(REPLACE_EVENT, () => {
+    retired = true;
+    if (app) {
+      app.unmount();
+      app = null;
+    }
+  });
 
   async function sync() {
+    if (retired) return undefined;
     if (mounting) {
       again = true;
       return mounting;
@@ -43,6 +63,11 @@
       app = next;
     })().finally(() => {
       mounting = null;
+      if (retired && app) {
+        app.unmount();
+        app = null;
+        return;
+      }
       if (again) {
         again = false;
         sync().catch(() => {});

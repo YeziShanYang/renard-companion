@@ -6,6 +6,16 @@
 
   R.ext = globalThis.browser ?? globalThis.chrome;
 
+  // False once the extension has been reloaded, updated, or removed while
+  // this page stayed open (runtime.id goes away for orphaned scripts).
+  R.contextAlive = function () {
+    try {
+      return Boolean(R.ext.runtime && R.ext.runtime.id);
+    } catch {
+      return false;
+    }
+  };
+
   R.send = async function (type, payload = {}) {
     const res = await R.ext.runtime.sendMessage({ type, ...payload });
     if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');

@@ -94,6 +94,8 @@
         onOpenSettings: () => R.send('renard:openOptions').catch(() => {}),
       });
       this.root.append(this.bubble.el, this.fox.el);
+      // Clear any fox an older copy of the extension left on the page.
+      for (const stray of document.querySelectorAll('renard-companion')) stray.remove();
       document.documentElement.append(this.host);
 
       this.bindEvents();
@@ -103,6 +105,8 @@
     }
 
     unmount() {
+      if (this.unmounted) return;
+      this.unmounted = true;
       this.cancelAsk();
       for (const t of Object.values(this.timers)) {
         clearTimeout(t);
@@ -176,6 +180,12 @@
 
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
+        // An orphaned copy (extension reloaded under this page) removes
+        // itself rather than leaving a fox that can no longer answer.
+        if (!R.contextAlive()) {
+          this.unmount();
+          return;
+        }
         if (location.href === this.lastHref) return;
         this.lastHref = location.href;
         this.updateTheme();
@@ -198,7 +208,9 @@
 
       // Put Renard back if the page replaces the root element's children.
       const hostObserver = new MutationObserver(() => {
-        if (!this.host.isConnected) document.documentElement.append(this.host);
+        if (this.host.isConnected) return;
+        if (R.contextAlive()) document.documentElement.append(this.host);
+        else this.unmount();
       });
       hostObserver.observe(document.documentElement, { childList: true });
       this.observers.push(hostObserver);
