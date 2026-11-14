@@ -176,6 +176,10 @@ async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
       throw new ProviderError(err.kind || 'unknown', String((err && err.message) || err));
     }
   }
+  if (!ext.offscreen) {
+    // src/ is the Firefox manifest; Chrome's build adds the offscreen permission.
+    throw new ProviderError('unknown', 'In Chrome, load the dist/chrome build (npm run build:chrome) to use the built-in model.');
+  }
   await ensureOffscreen();
   return new Promise((resolve, reject) => {
     const port = ext.runtime.connect({ name: 'renard:engine' });

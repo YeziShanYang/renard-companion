@@ -1,9 +1,13 @@
-// Builds store-ready zips for each browser in dist/:
+// Builds each browser's package in dist/<browser>/ and, unless --no-zip,
+// a store-ready zip:
 //   dist/renard-firefox-<version>.zip  (for addons.mozilla.org)
 //   dist/renard-chrome-<version>.zip   (for the Chrome Web Store)
+// --target firefox|chrome builds just one.
 //
-// src/manifest.json serves both browsers during development; each package
-// drops the keys its browser ignores or warns about. The licensed sprite
+// src/manifest.json is written for Firefox, so src/ loads in Firefox without
+// warnings. Each package adjusts it: Chrome gets a service worker in place of
+// background scripts, the offscreen permission (for the built-in model), and
+// drops Firefox-only keys. The licensed sprite
 // sheet is required, since a published build should show the real fox.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -28,28 +32,38 @@ const manifest = JSON.parse(fs.readFileSync(path.join(SRC, 'manifest.json'), 'ut
 
 const TARGETS = {
   // Firefox runs background.scripts; service_worker is ignored there.
-  firefox: (m) => {
-    delete m.background.service_worker;
-    // The built-in model runs in Firefox's background page; offscreen
-    // documents are Chrome's.
-    m.permissions = m.permissions.filter((p) => p !== 'offscreen');
-    return m;
-  },
-  // Chrome runs background.service_worker and does not know Firefox's keys.
+  firefox: (m) => m,
+  // Chrome runs a service worker, needs an offscreen document for the
+  // built-in model (its service worker can't use the GPU for it), and does
+  // not know Firefox's keys.
   chrome: (m) => {
-    delete m.background.scripts;
+    m.background = { service_worker: m.background.scripts[0], type: 'module' };
     delete m.browser_specific_settings;
+    m.permissions = [...new Set([...m.permissions, 'offscreen'])];
     return m;
   },
 };
 
+const args = process.argv.slice(2);
+const only = args.includes('--target') ? args[args.indexOf('--target') + 1] : null;
+const zip = !args.includes('--no-zip');
+if (only && !TARGETS[only]) {
+  console.error(`Unknown --target ${only}; use firefox or chrome.`);
+  process.exit(1);
+}
+
 fs.mkdirSync(DIST, { recursive: true });
 for (const [target, adjust] of Object.entries(TARGETS)) {
+  if (only && target !== only) continue;
   const dir = path.join(DIST, target);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.cpSync(SRC, dir, { recursive: true, filter: (p) => !path.basename(p).startsWith('.') });
   const m = adjust(structuredClone(manifest));
   fs.writeFileSync(path.join(dir, 'manifest.json'), `${JSON.stringify(m, null, 2)}\n`);
+  if (!zip) {
+    console.log(`built dist/${target}/`);
+    continue;
+  }
   const filename = `renard-${target}-${manifest.version}.zip`;
   execFileSync(WEB_EXT, ['build', '--source-dir', dir, '--artifacts-dir', DIST, '--filename', filename, '--overwrite-dest'], { stdio: 'inherit' });
   if (target === 'firefox') execFileSync(WEB_EXT, ['lint', '--source-dir', dir], { stdio: 'inherit' });

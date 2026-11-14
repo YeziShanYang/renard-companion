@@ -62,9 +62,16 @@ access** for each site and for the API.
 
 ### Run in Chrome
 
-Open `chrome://extensions`, turn on **Developer mode**, choose **Load
-unpacked**, and select the `src/` folder. `npm run start:chrome` does the same
-in a fresh profile.
+`src/manifest.json` is written for Firefox, so Chrome loads a generated build:
+
+```sh
+npm run build:chrome
+```
+
+Then open `chrome://extensions`, turn on **Developer mode**, choose **Load
+unpacked**, and select `dist/chrome/`. Rerun `npm run build:chrome` (and click
+reload) after changing files. `npm run start:chrome` builds it and opens a
+fresh Chrome profile with Renard loaded.
 
 ### First run
 
@@ -137,7 +144,7 @@ field would otherwise take the key first.
 
 ```
 src/
-  manifest.json          MV3; background.scripts (Firefox) + service_worker (Chrome)
+  manifest.json          MV3, written for Firefox; the Chrome build swaps in a service worker
   background/            API calls, settings, asset delivery, badge, shortcuts
   shared/                constants, settings access, provider clients, prompt
   engine/                built-in model (Transformers.js on WebGPU)

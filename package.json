@@ -9,7 +9,8 @@
     "postinstall": "node scripts/vendor.mjs",
     "icons": "node scripts/make-icons.mjs",
     "start": "web-ext run --source-dir src --start-url https://claude.ai/new",
-    "start:chrome": "web-ext run --source-dir src --target chromium --start-url https://claude.ai/new",
+    "build:chrome": "node scripts/package.mjs --target chrome --no-zip",
+    "start:chrome": "npm run build:chrome && web-ext run --source-dir dist/chrome --target chromium --start-url https://claude.ai/new",
     "lint": "web-ext lint --source-dir src",
     "build": "node scripts/package.mjs",
     "test": "node --test \"test/*.test.mjs\""

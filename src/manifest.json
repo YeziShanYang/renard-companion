@@ -22,11 +22,10 @@
     "open_in_tab": true
   },
   "background": {
-    "service_worker": "background/background.js",
     "scripts": ["background/background.js"],
     "type": "module"
   },
-  "permissions": ["storage", "unlimitedStorage", "offscreen"],
+  "permissions": ["storage", "unlimitedStorage"],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
