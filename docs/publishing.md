@@ -40,19 +40,19 @@ Both stores can use the same copy.
 
 **Summary** (under 250 characters):
 
-> A pixel-art fox that lives in the margins of claude.ai, ChatGPT, and sites
-> you add. Ask it anything: it answers with your own Anthropic, OpenAI, or
-> Gemini API key, or a Gemma model that runs on your computer.
+> A pixel-art fox companion that helps you read, summarize, and make sense of
+> the page you're on, from claude.ai and ChatGPT to any site you add.
 
 **Description:**
 
-> Renard is a small pixel-art fox that wanders the side margins of claude.ai
-> and ChatGPT, and of any other website you turn it on for. Click it, ask a
-> question, and the answer streams into a large, readable panel.
+> Renard is a small pixel-art fox companion that helps you make sense of what
+> you're reading. It wanders the side margins of claude.ai and ChatGPT, and of
+> any other website you turn it on for. Click it, ask about the page, and the
+> answer streams into a large, readable panel.
 >
-> - Bring your own key: Anthropic, OpenAI, or Google Gemini. Questions go
->   straight from your browser to the provider you choose; there is no Renard
->   server.
+> - Answers come from Anthropic, OpenAI, or Google Gemini, using an API key you
+>   add in settings. Questions go straight from your browser to the provider
+>   you choose; there is no Renard server.
 > - Or use the built-in model: download Gemma once and it runs on your
 >   computer's graphics chip, with no key and nothing sent anywhere.
 > - Read chat: include the conversation on the page, so "summarize this chat"
@@ -111,9 +111,9 @@ Both stores can use the same copy.
 3. **Store listing:** description, category (Productivity), language, icon,
    screenshots, and promo tile.
 4. **Privacy practices:**
-   - Single purpose: a companion on claude.ai, ChatGPT, and websites the user
-     adds, that answers questions with the user's own AI provider key or a
-     built-in model.
+   - Single purpose: a companion that helps users read and summarize the page
+     they're on (claude.ai, ChatGPT, and websites they add), answering
+     questions with an AI provider they connect or a built-in model.
    - Permission justifications: `storage` (settings and key on the device);
      `unlimitedStorage` (keeps the built-in model's files); `offscreen` (runs
      the built-in model in a hidden page with GPU access); `scripting` (shows

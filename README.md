@@ -8,12 +8,12 @@
 
 ![Renard's answer bubble open beside the fox on a dark page, answering "why 256 per token vector"](docs/screenshot.webp)
 
-Renard is a pixel-art fox that lives in the side margins of the browser
-window on claude.ai and chatgpt.com (and on any other website you add),
-wandering around a little while it waits.
-Click it, ask a question, and the answer comes from your own Anthropic, OpenAI,
-or Gemini API key, or from a built-in Gemma model that runs on your own
-computer, streamed into a large, readable panel. With **Read chat** on, the
+Renard is a pixel-art fox companion that helps you read, summarize, and make
+sense of the page you're on. It lives in the side margins of claude.ai and
+chatgpt.com (and of any other website you add), wandering around a little
+while it waits. Click it and ask a question: the answer streams into a large,
+readable panel, from Anthropic, OpenAI, or Gemini through an API key added in
+settings, or from a built-in Gemma model that runs on the computer. With **Read chat** on, the
 conversation open on the page is sent along as context, so questions like
 "summarize this chat" work. On other websites the switch reads **Read page**
 and sends the page's text instead.
