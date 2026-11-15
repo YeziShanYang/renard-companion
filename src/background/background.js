@@ -118,16 +118,14 @@ const bubbleKeys = {
     if (ext.storage.session) await ext.storage.session.set({ [`bubble:${id}`]: key });
     else this.memory.set(id, key);
   },
-  async take(id) {
-    if (!ext.storage.session) {
-      const key = this.memory.get(id);
-      this.memory.delete(id);
-      return key;
-    }
+  async get(id) {
+    if (!ext.storage.session) return this.memory.get(id);
     const name = `bubble:${id}`;
-    const key = (await ext.storage.session.get(name))[name];
-    await ext.storage.session.remove(name);
-    return key;
+    return (await ext.storage.session.get(name))[name];
+  },
+  async drop(id) {
+    if (ext.storage.session) await ext.storage.session.remove(`bubble:${id}`);
+    else this.memory.delete(id);
   },
 };
 
@@ -177,8 +175,9 @@ const handlers = {
     return { ok: true };
   },
 
-  // The bubble's one-time channel key: the content script registers it, and
-  // the frame (Renard's own page, in the same tab) collects it once.
+  // The bubble's channel key: the content script registers it, and the frame
+  // (Renard's own page, in the same tab) collects it each time it loads. The
+  // key lasts as long as the bubble; it is dropped on unmount or tab close.
   'renard:bubbleKey': async (msg, sender) => {
     if (fromExtensionPage(sender) || !sender.tab || !HEX.test(msg.instance) || !HEX.test(msg.key)) throw new Error('Not allowed');
     await bubbleKeys.set(`${sender.tab.id}:${msg.instance}`, msg.key);
@@ -189,9 +188,15 @@ const handlers = {
     if (!(sender.url || '').startsWith(ext.runtime.getURL('bubble/bubble.html')) || !sender.tab || !HEX.test(msg.instance)) {
       throw new Error('Not allowed');
     }
-    const key = await bubbleKeys.take(`${sender.tab.id}:${msg.instance}`);
+    const key = await bubbleKeys.get(`${sender.tab.id}:${msg.instance}`);
     if (!key) throw new Error('No key for this bubble');
     return { key };
+  },
+
+  'renard:bubbleKeyDrop': async (msg, sender) => {
+    if (fromExtensionPage(sender) || !sender.tab || !HEX.test(msg.instance)) throw new Error('Not allowed');
+    await bubbleKeys.drop(`${sender.tab.id}:${msg.instance}`);
+    return { ok: true };
   },
 
   // From the toolbar popup or settings only, never from a page.

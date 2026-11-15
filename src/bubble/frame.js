@@ -105,10 +105,11 @@
         h('div', { class: 'input-box' }, [this.input, h('span', { class: 'block-caret', 'aria-hidden': 'true' })]),
         h('div', { class: 'ask-row' }, [this.readLabel, this.sendBtn]),
       ]);
+      // The content script decides between asking and stopping: it knows
+      // whether an answer is still coming, without a message's delay.
       this.form.addEventListener('submit', (e) => {
         e.preventDefault();
-        if (this.streaming) post({ type: 'stop' });
-        else post({ type: 'submit', question: this.input.value, readChat: this.readChat.checked });
+        post({ type: 'submit', question: this.input.value, readChat: this.readChat.checked });
       });
 
       this.el = h(
@@ -124,7 +125,7 @@
         if (!e.isTrusted || e.isComposing) return;
         if (e.key === 'Escape') {
           e.preventDefault();
-          post({ type: 'close' });
+          post({ type: 'close', via: 'key' });
           return;
         }
         if (e.repeat) return;
@@ -389,11 +390,24 @@
       port.onmessage = (ev) => ev.data && typeof ev.data.type === 'string' && panel.handle(ev.data);
       panel.reportHeight();
     };
-    window.addEventListener('message', (e) => (key ? accept(e) : offers.push(e)));
-    try {
-      const res = await ext.runtime.sendMessage({ type: 'renard:frameKey', instance });
-      key = res && res.ok ? res.result.key : null;
-    } catch {
+    // Offers that arrive before the key are held (a few at most).
+    const onMessage = (e) => {
+      if (key) accept(e);
+      else if (offers.length < 4) offers.push(e);
+    };
+    window.addEventListener('message', onMessage);
+    for (const delay of [0, 300, 1000, 3000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      try {
+        const res = await ext.runtime.sendMessage({ type: 'renard:frameKey', instance });
+        key = res && res.ok ? res.result.key : null;
+      } catch {
+        key = null;
+      }
+      if (key) break;
+    }
+    if (!key) {
+      window.removeEventListener('message', onMessage);
       return;
     }
     for (const e of offers.splice(0)) accept(e);

@@ -117,7 +117,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: var(--max-h, 80vh);
+  max-height: var(--max-h, none); /* vh here would be the frame's own height */
   padding: 14px 14px 12px;
 }
 

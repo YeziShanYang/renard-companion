@@ -101,9 +101,15 @@
         onHover: () => this.touch(),
       });
       this.bubble = new R.Bubble({
-        onSubmit: (q) => this.ask(q),
+        // Enter or the Ask/Stop button: stop an answer that is still coming,
+        // otherwise ask.
+        onSubmit: (q) => (this.port ? this.stop() : this.ask(q)),
         onStop: () => this.stop(),
-        onClose: () => this.closeBubble(true),
+        onClose: (via) => {
+          // Closed from the keyboard: show the focus ring on the fox again.
+          if (via === 'key') delete this.fox.el.dataset.pointer;
+          this.closeBubble(true);
+        },
         onExpand: () => this.toggleExpand(),
         onResize: (size) => this.resizeBubble(size),
         onResizeEnd: () => this.saveBubble(),
@@ -111,7 +117,10 @@
         onOpenSettings: () => R.send('renard:openOptions').catch(() => {}),
         onClear: () => this.clearAnswer(),
         // Keys typed in the bubble stay in its frame, which reports shortcuts.
-        onCommand: (cmd) => this.command(cmd, 'page'),
+        onCommand: (cmd) => {
+          delete this.fox.el.dataset.pointer;
+          this.command(cmd, 'page');
+        },
         onBlip: () => this.blip(),
       });
       this.root.append(this.bubble.el, this.fox.el);

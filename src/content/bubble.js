@@ -4,10 +4,12 @@
 // the frame. This class keeps the interface the app uses and relays it to
 // the frame; the app decides where the bubble goes.
 //
-// The channel to the frame is a MessageChannel handed over with a one-time
+// The channel to the frame is a MessageChannel handed over with a secret
 // key. The key goes from this script to the frame through the background
 // script (extension messaging, which sites can't use), so a site that gets
-// hold of the frame can't open a channel of its own.
+// hold of the frame can't open a channel of its own. Every load of the frame
+// (a reload, or the page moving Renard's element) gets a new channel and a
+// replay of what the bubble shows.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
   const { h } = R;
@@ -24,7 +26,11 @@
       this.answering = false; // a question has been asked and not cleared
       this.readChat = { checked: false };
       this.port = null;
-      this.queue = [];
+      // What the frame shows, latest message per kind in the order they
+      // were last set, replayed to a freshly loaded frame.
+      this.state = new Map();
+      // One-off requests (focus, prefill) made before the frame connected.
+      this.pending = new Map();
       this.layout = null;
       this.instance = randomHex(12);
       this.key = randomHex(24);
@@ -50,48 +56,67 @@
       );
     }
 
-    // Registers the key, then loads the frame; once it has loaded, hands it
-    // one end of a MessageChannel along with the key.
+    // Registers the key (retrying a transient failure), then loads the
+    // frame. Each time the frame loads, it gets a new channel.
     async connect() {
-      try {
-        await R.send('renard:bubbleKey', { instance: this.instance, key: this.key });
-      } catch {
-        return; // extension reloaded; this copy is on its way out
+      for (const delay of [0, 500, 1500, 4000]) {
+        if (delay) await new Promise((r) => setTimeout(r, delay));
+        if (this.destroyed || !R.contextAlive()) return; // extension reloaded: this copy is leaving
+        try {
+          await R.send('renard:bubbleKey', { instance: this.instance, key: this.key });
+          break;
+        } catch {
+          if (delay === 4000) return;
+        }
       }
-      const origin = new URL(R.ext.runtime.getURL('')).origin;
-      this.frame.addEventListener(
-        'load',
-        () => {
-          const channel = new MessageChannel();
-          channel.port1.onmessage = (e) => e.data && typeof e.data.type === 'string' && this.fromFrame(e.data);
-          this.frame.contentWindow.postMessage({ renard: 'bubble', key: this.key }, origin, [channel.port2]);
-          this.port = channel.port1;
-          const queued = this.queue;
-          this.queue = [];
-          for (const m of queued) this.port.postMessage(m);
-        },
-        { once: true },
-      );
+      if (this.destroyed) return;
+      this.frame.addEventListener('load', () => this.handOver());
       this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);
     }
 
-    destroy() {
+    handOver() {
+      if (this.destroyed || !this.frame.contentWindow) return;
       if (this.port) this.port.close();
-      this.port = null;
-      this.queue = [];
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (e) => e.data && typeof e.data.type === 'string' && this.fromFrame(e.data);
+      const origin = new URL(R.ext.runtime.getURL('')).origin;
+      this.frame.contentWindow.postMessage({ renard: 'bubble', key: this.key }, origin, [channel.port2]);
+      this.port = channel.port1;
+      for (const m of this.state.values()) this.post(m);
+      for (const m of this.pending.values()) this.post(m);
+      this.pending.clear();
     }
 
-    // Messages wait until the frame has connected.
-    send(msg) {
-      if (this.port) {
-        try {
-          this.port.postMessage(msg);
-          return;
-        } catch {
-          this.port = null;
-        }
+    destroy() {
+      this.destroyed = true;
+      if (this.port) this.port.close();
+      this.port = null;
+      this.state.clear();
+      this.pending.clear();
+      R.send('renard:bubbleKeyDrop', { instance: this.instance }).catch(() => {});
+    }
+
+    // One message that fails to send is dropped; the channel stays.
+    post(msg) {
+      if (!this.port) return;
+      try {
+        this.port.postMessage(msg);
+      } catch (err) {
+        console.warn('[Renard] bubble message dropped:', err);
       }
-      this.queue.push(msg);
+    }
+
+    // State: remembered for a reloaded frame, sent now if connected.
+    keep(kind, msg) {
+      this.state.delete(kind);
+      this.state.set(kind, msg);
+      this.post(msg);
+    }
+
+    // One-off: sent now, or once the frame connects.
+    once(msg) {
+      if (this.port) this.post(msg);
+      else this.pending.set(msg.type, msg);
     }
 
     fromFrame(m) {
@@ -110,7 +135,7 @@
           H.onStop();
           break;
         case 'close':
-          H.onClose();
+          H.onClose(m.via === 'key' ? 'key' : 'pointer');
           break;
         case 'expand':
           H.onExpand();
@@ -180,7 +205,7 @@
       const key = JSON.stringify(layout);
       if (key !== this.layout) {
         this.layout = key;
-        this.send(layout);
+        this.keep('layout', layout);
       }
     }
 
@@ -192,12 +217,12 @@
     // input (or the settings button when asking is blocked).
     focusPrimary({ select = false } = {}) {
       this.frame.focus();
-      this.send({ type: 'focus', select });
+      this.once({ type: 'focus', select });
     }
 
     focusInput() {
       this.frame.focus();
-      this.send({ type: 'focusInput' });
+      this.once({ type: 'focusInput' });
     }
 
     bindCorner(el, corner) {
@@ -226,75 +251,77 @@
     // ---- content (relayed to the frame) ------------------------------------
 
     setTheme(theme, readable) {
-      this.send({ type: 'theme', theme, readable: Boolean(readable) });
+      this.keep('theme', { type: 'theme', theme, readable: Boolean(readable) });
     }
 
     setPrefs({ sound, shortcuts }) {
-      this.send({ type: 'prefs', sound: Boolean(sound), shortcuts: shortcuts || {} });
+      this.keep('prefs', { type: 'prefs', sound: Boolean(sound), shortcuts: shortcuts || {} });
     }
 
     setLine(text) {
-      this.send({ type: 'line', text });
+      this.keep('line', { type: 'line', text });
     }
 
     // Blocked: no way to ask yet (no key, no API access). Shows the notice
     // with the settings button and hides the input.
     setBlocked(detail) {
-      this.send({ type: 'blocked', detail: detail || '' });
+      this.keep('blocked', { type: 'blocked', detail: detail || '' });
     }
 
     setNotice(notice) {
-      this.send({ type: 'notice', notice: notice || null });
+      this.keep('notice', { type: 'notice', notice: notice || null });
     }
 
     setReadChat(on) {
       this.readChat.checked = Boolean(on);
-      this.send({ type: 'readChat', on: this.readChat.checked });
+      this.keep('readChat', { type: 'readChat', on: this.readChat.checked });
     }
 
     // "Read chat" on chat sites, "Read page" elsewhere.
     setReadLabel(text, title) {
-      this.send({ type: 'readLabel', text, title });
+      this.keep('readLabel', { type: 'readLabel', text, title });
     }
 
     // Puts text in the input unless the user has typed something.
     prefillDraft(text) {
-      this.send({ type: 'prefill', text });
+      this.once({ type: 'prefill', text });
     }
 
     setDraft(text) {
-      this.send({ type: 'draft', text });
+      this.once({ type: 'draft', text });
     }
 
     startAnswer(question) {
       this.answering = true;
       this.markdown = '';
-      this.send({ type: 'start', question });
+      for (const kind of ['answer', 'note']) this.state.delete(kind);
+      this.keep('start', { type: 'start', question });
     }
 
     reset() {
       this.answering = false;
       this.markdown = '';
-      this.send({ type: 'reset' });
+      for (const kind of ['start', 'answer', 'note', 'notice']) this.state.delete(kind);
+      this.post({ type: 'reset' });
     }
 
     setNote(text) {
-      this.send({ type: 'note', text });
+      this.keep('note', { type: 'note', text });
     }
 
     // Streaming text goes over as deltas, so a long answer isn't resent on
-    // every update.
+    // every update; a reloaded frame gets the whole answer.
     setAnswer(markdown, { streaming = false } = {}) {
-      if (streaming && this.markdown && markdown.startsWith(this.markdown) && markdown.length > this.markdown.length) {
-        this.send({ type: 'delta', text: markdown.slice(this.markdown.length) });
-      } else {
-        this.send({ type: 'answer', markdown, streaming });
-      }
+      const delta = streaming && this.markdown && markdown.startsWith(this.markdown) && markdown.length > this.markdown.length;
+      const full = { type: 'answer', markdown, streaming };
+      this.state.delete('answer');
+      this.state.set('answer', full);
+      this.post(delta ? { type: 'delta', text: markdown.slice(this.markdown.length) } : full);
       this.markdown = markdown;
     }
 
     announce(text) {
-      this.send({ type: 'announce', text });
+      this.post({ type: 'announce', text });
     }
   };
 })();
