@@ -346,10 +346,19 @@
         if (parsed) this.shortcuts[cmd] = parsed;
       }
       const blocked = this.blocker();
+      // Renard can't answer (no key, no download, no access to the API): the
+      // bubble shows only what to set up, with no input. The conversation so
+      // far is dropped rather than left under a sleeping fox, and a usable
+      // model later starts from an empty bubble.
+      if (blocked && (this.last || this.port || this.bubble.hasAnswer())) this.dropConversation();
       if (this.bubble.isOpen) {
         this.bubble.setBlocked(blocked && blocked.detail);
+        // Said when the bubble is open as what's needed changes.
+        const reason = blocked ? blocked.line : null;
+        if (reason !== this.blockedReason) this.bubble.setLine(this.line(reason || 'open'), { onChar: this.blip });
         if (!this.freePlaced) this.placeBubble();
       }
+      this.blockedReason = blocked ? blocked.line : null;
       if (!blocked && this.mode === 'blocked') {
         this.wake().then(() => {
           if (this.mode === 'waking') this.rest();
@@ -358,6 +367,16 @@
         this.haltWander();
         this.sleepBlocked();
       }
+    }
+
+    // Back to an empty, compact bubble: no question, answer or draft.
+    dropConversation() {
+      this.cancelAsk();
+      this.last = null;
+      this.bubble.reset();
+      this.bubbleSize.expanded = false;
+      this.freePlaced = false;
+      if (['thinking', 'reacting'].includes(this.mode)) this.rest();
     }
 
     blocker() {

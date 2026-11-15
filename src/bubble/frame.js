@@ -215,7 +215,9 @@
           this.setLine(String(m.text || ''));
           break;
         case 'blocked':
+          // Setting up: the notice and its settings button only.
           this.form.hidden = Boolean(m.detail);
+          this.expandBtn.hidden = Boolean(m.detail);
           this.setNotice(m.detail ? { text: m.detail, settings: true } : null);
           break;
         case 'notice':
