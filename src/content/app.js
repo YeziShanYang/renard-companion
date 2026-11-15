@@ -263,12 +263,7 @@
 
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
-        // An orphaned copy (extension reloaded under this page) removes
-        // itself rather than leaving a fox that can no longer answer.
-        if (!R.contextAlive()) {
-          this.unmount();
-          return;
-        }
+        if (this.orphaned()) return;
         if (location.href === this.lastHref) return;
         this.lastHref = location.href;
         this.updateTheme();
@@ -361,6 +356,16 @@
 
     async refresh() {
       if (R.sync) await R.sync();
+    }
+
+    // An orphaned copy (the extension was reloaded or updated under this
+    // page) can no longer answer, so it removes its fox. Checked every
+    // second, which a background tab may slow to once a minute, and on every
+    // click or shortcut, so a stale fox never opens a bubble that can't work.
+    orphaned() {
+      if (R.contextAlive()) return false;
+      this.unmount();
+      return true;
     }
 
     // ---- behavior ---------------------------------------------------------
@@ -629,7 +634,7 @@
     // One key press can arrive both ways; the second within 600 ms is ignored
     // so a shortcut never toggles twice.
     command(cmd, source = 'browser') {
-      if (this.leaving) return;
+      if (this.leaving || this.orphaned()) return;
       const now = performance.now();
       const last = this.lastCommand;
       if (last && last.cmd === cmd && last.source !== source && now - last.at < 600) return;
@@ -658,7 +663,7 @@
     // ---- pointer ----------------------------------------------------------
 
     activate() {
-      if (this.hidden || MOVING.includes(this.mode)) return;
+      if (this.orphaned() || this.hidden || MOVING.includes(this.mode)) return;
       const now = performance.now();
       this.clicks = this.clicks.filter((t) => now - t < DIZZY_WINDOW_MS);
       this.clicks.push(now);
