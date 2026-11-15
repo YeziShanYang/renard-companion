@@ -209,6 +209,33 @@ async function cachedBytes(model) {
   return bytes;
 }
 
+// Answers one question (inside serial()), loading the model from the cache
+// first if needed.
+async function generate(msg, emit, signal) {
+  const c = await load(msg.key, emit, { cacheOnly: true });
+  if (signal && signal.aborted) return { stopped: true };
+  emit({ type: 'thinking' });
+  const stopper = new InterruptableStoppingCriteria();
+  active = stopper;
+  const onAbort = () => stopper.interrupt();
+  if (signal) signal.addEventListener('abort', onAbort);
+  try {
+    await c.run({
+      system: String(msg.system || '').slice(0, 4000),
+      user: String(msg.user || '').slice(0, 200000),
+      maxNewTokens: Math.min(2048, Math.max(1, Math.round(Number(msg.maxNewTokens) || 1024))),
+      stopper,
+      onDelta: (text) => {
+        if (text) emit({ type: 'delta', text });
+      },
+    });
+  } finally {
+    if (signal) signal.removeEventListener('abort', onAbort);
+    if (active === stopper) active = null;
+  }
+  return { stopped: Boolean(signal && signal.aborted) };
+}
+
 // Requests from the background script. emit() sends progress and text;
 // the returned value is the final result.
 export async function handle(type, msg, emit, signal) {
@@ -229,29 +256,13 @@ export async function handle(type, msg, emit, signal) {
       emit({ type: 'loading' });
       return serial(async () => {
         if (signal && signal.aborted) return { stopped: true };
-        const c = await load(msg.key, emit, { cacheOnly: true });
-        if (signal && signal.aborted) return { stopped: true };
-        emit({ type: 'thinking' });
-        const stopper = new InterruptableStoppingCriteria();
-        active = stopper;
-        const onAbort = () => stopper.interrupt();
-        if (signal) signal.addEventListener('abort', onAbort);
         try {
-          await c.run({
-            system: String(msg.system || '').slice(0, 4000),
-            user: String(msg.user || '').slice(0, 200000),
-            maxNewTokens: Math.min(2048, Math.max(1, Math.round(Number(msg.maxNewTokens) || 1024))),
-            stopper,
-            onDelta: (text) => {
-              if (text) emit({ type: 'delta', text });
-            },
-          });
+          return await generate(msg, emit, signal);
         } finally {
-          if (signal) signal.removeEventListener('abort', onAbort);
-          if (active === stopper) active = null;
-          scheduleUnload();
+          // A loaded model always goes back on its idle timer, also when the
+          // page that asked closed while the model was loading.
+          if (current) scheduleUnload();
         }
-        return { stopped: Boolean(signal && signal.aborted) };
       });
 
     case 'remove':
