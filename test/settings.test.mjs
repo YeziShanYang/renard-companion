@@ -47,3 +47,27 @@ test('API keys are one line of printable ASCII', () => {
   assert.ok(!R.isApiKey('x'.repeat(513)));
   assert.ok(!R.isApiKey(42));
 });
+
+test('settings saved by Renard load back unchanged after a restart', () => {
+  const gemma = R.LOCAL_MODELS['gemma-3-1b'];
+  const saved = {
+    spawned: false,
+    provider: 'local',
+    apiKeys: { anthropic: '', openai: 'sk-test-0000', gemini: '' },
+    models: { anthropic: null, openai: { id: 'gpt-test', name: 'GPT Test', maxTokens: 1000, effortLow: true }, gemini: null },
+    sites: { claude: false, chatgpt: true },
+    otherSites: ['en.wikipedia.org'],
+    prefs: { readChat: false, readableText: true, sound: true },
+    bubble: { width: 640, height: 400, expanded: true },
+    // The other model selected, with Gemma 3 1B downloaded (what a finished
+    // download records).
+    localModel: { key: 'gemma-4-e2b', ready: { 'gemma-3-1b': { dtype: 'q4f16', bytes: 783856804, revision: gemma.revision, at: 1 } } },
+    positions: { claude: { edge: 'left', y: 0.2 }, 'web:en.wikipedia.org': { edge: 'right', y: 0.9 } },
+  };
+  assert.deepEqual(Object.keys(saved).sort(), Object.keys(R.DEFAULTS).sort(), 'every setting is covered');
+  for (const [key, value] of Object.entries(saved)) assert.deepEqual(cleanSetting(key, value), value, key);
+  const lm = cleanSetting('localModel', saved.localModel);
+  assert.ok(R.localReady(lm, gemma));
+  assert.equal(R.localReady(lm, R.LOCAL_MODELS['gemma-4-e2b']), null);
+  assert.equal(R.localReady({ ready: { 'gemma-3-1b': { ...lm.ready['gemma-3-1b'], revision: 'older' } } }, gemma), null, 'an older download');
+});
