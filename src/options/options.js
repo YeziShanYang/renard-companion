@@ -349,9 +349,15 @@ function accessButton(origins, onDone) {
   return btn;
 }
 
+// Several changes can arrive at once (adding a site fires a permission event
+// and a storage change), and each render awaits permission checks. Build the
+// rows first and let only the latest render replace the list, so rows are
+// never added twice.
+let sitesRender = 0;
+
 async function renderSites() {
-  const list = $('sites');
-  list.replaceChildren();
+  const token = ++sitesRender;
+  const rows = [];
   for (const site of Object.values(R.SITES)) {
     const enabled = settings.sites[site.id] !== false;
     const li = document.createElement('li');
@@ -377,7 +383,7 @@ async function renderSites() {
     });
     actions.append(label);
     li.append(text, actions);
-    list.append(li);
+    rows.push(li);
   }
   // Websites added from the toolbar popup.
   for (const host of settings.otherSites) {
@@ -387,7 +393,7 @@ async function renderSites() {
     text.className = 'row-text';
     text.append(
       Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }),
-      Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Added from the toolbar. Read chat reads the page here.' }),
+      Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Added from the toolbar menu' }),
     );
     const remove = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Remove' });
     remove.setAttribute('aria-label', `Remove ${host}`);
@@ -400,8 +406,9 @@ async function renderSites() {
     actions.className = 'row-actions';
     actions.append(remove);
     li.append(text, actions);
-    list.append(li);
+    rows.push(li);
   }
+  if (token === sitesRender) $('sites').replaceChildren(...rows);
 }
 
 async function renderAccess() {
