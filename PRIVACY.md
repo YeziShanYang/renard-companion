@@ -104,4 +104,5 @@ is governed by that provider's policy.
 
 ## Contact
 
-Questions about this policy: [add a support email or page before publishing].
+Questions about this policy or Renard's handling of data: open an issue at
+https://github.com/YeziShanYang/renard-companion/issues.

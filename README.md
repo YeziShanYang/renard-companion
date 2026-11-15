@@ -230,9 +230,9 @@ npm run icons    # regenerate src/icons/ from the fox head art
 npm run build    # store zips: dist/renard-firefox-<version>.zip, dist/renard-chrome-<version>.zip
 ```
 
-Publishing steps for addons.mozilla.org and the Chrome Web Store are in
-[`docs/publishing.md`](docs/publishing.md); the privacy policy the stores ask
-for is [`PRIVACY.md`](PRIVACY.md).
+Release steps for addons.mozilla.org and the Chrome Web Store are in
+[`docs/publishing.md`](docs/publishing.md); the privacy policy is
+[`PRIVACY.md`](PRIVACY.md).
 
 For a permanent Firefox install, sign the build as an unlisted add-on on
 addons.mozilla.org (free, automated, not public), or use Firefox Developer
