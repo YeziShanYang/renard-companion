@@ -12,6 +12,10 @@
   const HIT_WIDTH = 78;
   const TOP_EMPTY = 13 * SCALE; // empty rows above the fox's ears in each frame
   const DRAG_THRESHOLD = 5;
+  // Walk-cycle frame time is WALK_TEMPO / speed (clamped). The fox moves 30%
+  // faster than this was tuned for, and the factor keeps the cycle's tempo
+  // where it was: faster travel, same paws.
+  const WALK_TEMPO = 85 * 160 * 1.3;
 
   R.Fox = class {
     static bodyWidth = HIT_WIDTH;
@@ -190,7 +194,7 @@
       for (const p of points) {
         if (Math.abs(p.x - this.x) > 6) this.face(p.x > this.x ? 'right' : 'left');
         const speed = baseSpeed * (p.speed || 1);
-        this.walkMs = Math.round(Math.min(108, Math.max(45, (85 * 160) / speed)));
+        this.walkMs = Math.round(Math.min(140, Math.max(55, WALK_TEMPO / speed)));
         if (p.hop && !this.hopping) this.hop();
         else if (!this.hopping) this.sprite.play('walk', { ms: this.walkMs, keep: true });
         if (!(await this.moveTo(p.x, p.y, speed))) {
