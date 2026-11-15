@@ -5,6 +5,7 @@ import '../shared/constants.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
 import { SYSTEM_PROMPT, trimChat, trimPage, buildUserMessage } from '../shared/prompt.js';
+import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
 
 const R = globalThis.Renard;
 
@@ -249,14 +250,35 @@ const handlers = {
     if (!fromSettings(sender)) throw new Error('Not allowed');
     if (!R.own(R.LOCAL_MODELS, msg.key)) throw new Error('Unknown model');
     await engineRequest({ type: 'remove', key: msg.key });
-    await update('localModel', (localModel) => {
-      const ready = { ...localModel.ready };
-      delete ready[msg.key];
-      return { ...localModel, ready };
-    });
+    await forgetLocal(msg.key);
     return { ok: true };
   },
+
+  // Whether a downloaded model is still whole in the cache, in the dtype this
+  // GPU loads, so settings says "ready" only for a model that can load.
+  // Browser data can be cleared, and another GPU may need other weights. A
+  // download that is gone is forgotten, and settings and the fox offer it
+  // again.
+  'renard:localCheck': async (msg, sender) => {
+    if (!fromSettings(sender)) throw new Error('Not allowed');
+    const model = R.own(R.LOCAL_MODELS, msg.key);
+    if (!model || !R.own(model.sizes, msg.dtype)) throw new Error('Unknown model');
+    const cache = await caches.open(CACHE_NAME);
+    const ready = hasModelFiles((await cache.keys()).map((req) => req.url), model, msg.dtype);
+    if (!ready) await forgetLocal(model.id);
+    return { ready };
+  },
 };
+
+// Drops a built-in model's download record, so it no longer counts as ready.
+function forgetLocal(key) {
+  return update('localModel', (localModel) => {
+    if (!R.own(localModel.ready, key)) return undefined;
+    const ready = { ...localModel.ready };
+    delete ready[key];
+    return { ...localModel, ready };
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Built-in model engine. Firefox's background page runs it directly (it has a
@@ -339,16 +361,23 @@ async function answerLocally(s, msg, post, signal) {
   if (!R.localReady(s.localModel, model)) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
   const { chat, page } = context(msg, post, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars, pageChars: R.LIMITS.localPageChars });
   const question = String(msg.question || '').slice(0, 20000);
-  await engineRequest(
-    { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
-    {
-      signal,
-      onEvent: (e) => {
-        if (e.type === 'delta') post({ type: 'delta', text: e.text });
-        else if (e.type === 'loading') post({ type: 'loading' });
+  try {
+    await engineRequest(
+      { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
+      {
+        signal,
+        onEvent: (e) => {
+          if (e.type === 'delta') post({ type: 'delta', text: e.text });
+          else if (e.type === 'loading') post({ type: 'loading' });
+        },
       },
-    },
-  );
+    );
+  } catch (err) {
+    // The engine found the download missing from the cache, so it isn't
+    // ready any more.
+    if (err.kind === 'localMissing') await forgetLocal(model.id);
+    throw err;
+  }
 }
 
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -416,6 +416,16 @@ async function deleteModel() {
   renderLocal();
 }
 
+// A model counts as downloaded only while its files are still whole in the
+// cache for this GPU. The background forgets one that isn't, and the storage
+// change redraws this section.
+function checkDownloads() {
+  if (!gpu || !gpu.ok) return;
+  for (const m of Object.values(R.LOCAL_MODELS)) {
+    if (R.localReady(settings.localModel, m)) send('renard:localCheck', { key: m.id, dtype: gpu.dtype }).catch(() => {});
+  }
+}
+
 function bindLocal() {
   $('local-download').addEventListener('click', startDownload);
   $('local-delete').addEventListener('click', deleteModel);
@@ -624,6 +634,7 @@ async function init() {
   detectGpu().then((result) => {
     gpu = result;
     if (settings.provider === 'local') renderLocal();
+    checkDownloads();
   });
   await Promise.all([renderSites(), renderAccess(), renderShortcuts()]);
   checkKey();
