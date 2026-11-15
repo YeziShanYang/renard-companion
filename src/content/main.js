@@ -103,5 +103,12 @@
     else if (msg.type === 'renard:command' && app) app.command(msg.command);
   });
 
+  // A page restored from the back/forward cache missed the refreshes sent
+  // while it was away (settings changed, a model downloaded, Renard sent
+  // home), so it asks for the current state.
+  addEventListener('pageshow', (e) => {
+    if (e.persisted && R.contextAlive()) sync().catch(() => {});
+  });
+
   sync().catch((err) => console.warn('[Renard]', err));
 })();
