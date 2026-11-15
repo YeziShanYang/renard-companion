@@ -116,3 +116,39 @@ test('local models: catalog and per-browser quantization', async () => {
   const r = trimChat([{ role: 'user', text: 'x'.repeat(20000) }], { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars });
   assert.ok(r.turns[0].text.length <= R.LIMITS.localTurnChars + 10);
 });
+
+test('turnFilter drops a made-up next turn and stops generation', async () => {
+  const { turnFilter } = await import('../src/shared/prompt.js');
+  const run = (chunks) => {
+    let out = '';
+    let stops = 0;
+    const f = turnFilter((t) => (out += t), () => stops++);
+    for (const c of chunks) f.push(c);
+    f.end();
+    return { out, stops };
+  };
+  // Split mid-word and mid-label, as tokens arrive.
+  assert.deepEqual(run(['Apples are a fru', 'it.\n\nUs', 'er Question: What else?\nAI Assistant: Pears.']), { out: 'Apples are a fruit.\n\n', stops: 1 });
+  assert.deepEqual(run(['A fox is a canid.\n', '[User Question: why?]\n', 'more']), { out: 'A fox is a canid.\n', stops: 1 });
+  assert.deepEqual(run(['Done.\n**AI Assistant Response:** extra']), { out: 'Done.\n', stops: 1 });
+  assert.deepEqual(run(['Hi!\nResponse: hello']), { out: 'Hi!\n', stops: 1 });
+  // Ordinary answers pass through whole, including colons and lists.
+  const answer = 'Foxes have bushy tails for:\n\n*   **Balance:** a counterweight.\n*   Warmth: they wrap it around.\nNote: tails also signal.';
+  assert.deepEqual(run(answer.match(/.{1,7}/gs)), { out: answer, stops: 0 });
+  assert.deepEqual(run(['12 × 7 = 84']), { out: '12 × 7 = 84', stops: 0 });
+  // The first line is never cut, even if it looks like a label.
+  assert.deepEqual(run(['Question: is it safe? Yes.']), { out: 'Question: is it safe? Yes.', stops: 0 });
+});
+
+test('the built-in model is told only about context that is attached', async () => {
+  const { localSystemPrompt, SYSTEM_PROMPT } = await import('../src/shared/prompt.js');
+  const plain = localSystemPrompt(null, null);
+  assert.ok(!/conversation|AI assistant|web page/i.test(plain), plain);
+  assert.ok(SYSTEM_PROMPT.startsWith(plain));
+  const chat = localSystemPrompt({ turns: [{ role: 'user', text: 'hi' }] }, null);
+  assert.match(chat, /conversation open on the page/);
+  assert.doesNotMatch(chat, /web page the user is viewing/);
+  const page = localSystemPrompt(null, { text: 'x' });
+  assert.match(page, /web page the user is viewing/);
+  assert.doesNotMatch(page, /AI assistant/);
+});

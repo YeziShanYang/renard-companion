@@ -4,7 +4,7 @@
 import '../shared/constants.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
-import { SYSTEM_PROMPT, trimChat, trimPage, buildUserMessage, turnFilter } from '../shared/prompt.js';
+import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
 
 const R = globalThis.Renard;
@@ -387,7 +387,7 @@ async function answerLocally(s, msg, post, signal) {
   const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort());
   try {
     await engineRequest(
-      { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
+      { type: 'generate', key: model.id, system: localSystemPrompt(chat, page), user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
       {
         signal: AbortSignal.any([signal, done.signal]),
         onEvent: (e) => {
