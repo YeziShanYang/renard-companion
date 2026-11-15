@@ -24,6 +24,10 @@
   // the page Renard runs on.
   R.originFor = (host) => `https://${host}/*`;
 
+  // What an API key can look like: one line of printable ASCII, no spaces,
+  // short enough for a request header. Anything else never leaves the page.
+  R.isApiKey = (key) => typeof key === 'string' && /^[\x21-\x7e]{1,512}$/.test(key);
+
   // Own-property lookup, so names like "__proto__" or "constructor" in a
   // message never match a built-in object member.
   R.own = (obj, key) => (typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined);

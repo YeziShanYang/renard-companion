@@ -114,6 +114,11 @@ async function checkKey() {
     renderModels();
     return;
   }
+  if (!R.isApiKey(key)) {
+    setStatus('bad', "✗ That doesn't look like an API key. A key is one line of letters, numbers and dashes.");
+    renderModels();
+    return;
+  }
   const granted = await hasOrigins(provider.origins);
   if (controller.signal.aborted) return;
   if (!granted) {
@@ -200,7 +205,16 @@ async function flushKey() {
   const pending = pendingKey;
   pendingKey = null;
   if (!pending || !R.PROVIDERS[pending.provider] || pending.provider === 'local') return;
-  await saveEntry('apiKeys', pending.provider, pending.value);
+  // Pasted keys often bring a newline or spaces along; anything else that
+  // can't be in a key isn't saved, so a stray paste can't replace a good key.
+  const value = pending.value.replace(/\s+/g, '');
+  if (value && !R.isApiKey(value)) {
+    if (settings.provider === pending.provider) {
+      setStatus('bad', "✗ That doesn't look like an API key. A key is one line of letters, numbers and dashes.");
+    }
+    return;
+  }
+  await saveEntry('apiKeys', pending.provider, value);
   if (settings.provider === pending.provider) checkKey();
 }
 

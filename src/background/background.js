@@ -362,6 +362,7 @@ async function answer(msg, post, signal) {
   if (provider.id === 'local') return answerLocally(s, msg, post, signal);
   const apiKey = s.apiKeys[provider.id];
   if (!apiKey) throw new ProviderError('keyMissing', 'No API key set');
+  if (!R.isApiKey(apiKey)) throw new ProviderError('keyInvalid', 'That API key has characters a key never has.');
   if (!(await hasOrigins(provider.origins))) {
     throw new ProviderError('permission', `Renard does not have access to ${provider.origins[0]}`);
   }
