@@ -36,39 +36,38 @@ each.
 
 Both stores can use the same copy.
 
-**Name:** Renard
+**Name:** Renard: Pixel Fox Companion (the manifest's `name`; `short_name` is
+Renard)
 
 **Summary** (under 250 characters):
 
-> Renard is an open-source pixel-art fox companion that helps you read,
-> summarize, and make sense of the page you're on. No API key needed: it runs
-> Gemma right on your computer, or connects to Anthropic, OpenAI, or Gemini if
-> you'd like.
+> An open-source pixel-art fox that helps you read, summarize, and understand
+> the page you're on. It can run a model fully on your computer, without an API
+> key, or use Anthropic, OpenAI, or Gemini.
 
 **Description:**
 
-> Renard is a little pixel-art fox who hangs out in the margins of claude.ai
-> and ChatGPT (and any site you invite it to), ready to help you make sense of
-> whatever you're reading. Click it, ask about the page, and the answer streams
-> into a big, comfy reading panel. It wanders, naps, and pounces while it
-> waits.
+> Renard is a small pixel-art fox that sits in the margins of claude.ai and
+> ChatGPT, and of any other site you turn it on for. Click it, ask about the
+> page, and the answer appears in a large reading panel. It wanders around and
+> naps while it waits.
 >
-> - No API key needed. Renard runs Gemma, Google's open model, locally on your
->   computer's graphics chip. Download it once in settings (about 0.8 GB) and
->   it works offline, with nothing you ask ever leaving your computer. It needs
+> - You don't need an API key. Renard can run Gemma, Google's open model, on
+>   your computer's graphics chip. Download it once in settings (about 0.8 GB)
+>   and it works offline, and nothing you ask leaves your computer. This needs
 >   WebGPU: recent Chrome, or Firefox on Apple Silicon Macs and Windows.
-> - Want a smarter fox? Connect Anthropic, OpenAI, or Google Gemini with an
->   API key. Questions go straight from your browser to that provider; there
->   is no Renard server.
-> - Read chat: include the conversation on the page, so "summarize this chat"
->   works. On other websites it reads the page instead. Turn it off any time.
-> - Your questions and answers stay out of the website's reach: the panel is
->   a separate extension frame that the site can't read.
+> - For a larger model, add an Anthropic, OpenAI, or Google Gemini API key.
+>   Questions go straight from your browser to that provider; there is no
+>   Renard server.
+> - With Read chat on, Renard includes the conversation on the page, so you can
+>   ask it to summarize the chat. On other websites it reads the page instead.
+>   You can turn this off at any time.
+> - Websites can't see your questions or Renard's answers: the panel is a
+>   separate extension frame that the site can't read.
 > - Drag the fox anywhere, resize the panel from any corner, and use
 >   Alt+Shift+F to open it or Alt+Shift+H to hide the fox.
 > - The toolbar menu shows or hides Renard everywhere, or turns it on for the
 >   site you're on.
->
 > - Open source under the GNU GPL v3: read the code, report issues, or build it
 >   yourself at https://github.com/YeziShanYang/renard-companion.
 >
