@@ -2,110 +2,124 @@
 
 Last updated: November 14, 2026
 
-Renard is a browser extension that shows a pixel-art fox on claude.ai,
-chatgpt.com, and other websites you add, and answers questions using an AI provider account that you supply
-(Anthropic, OpenAI, or Google Gemini) or a built-in model that runs on your own
-computer. This policy describes what data Renard handles and where it goes.
+Renard is a browser extension. It shows a pixel-art fox on claude.ai,
+chatgpt.com, and websites you add, and answers your questions with your own AI
+provider account (Anthropic, OpenAI, or Google Gemini) or with a built-in model
+on your computer.
 
-## Summary
+Renard has no server. Nothing you type or read is sent to Renard's developer.
 
-Renard has no server. Nothing you type or read is sent to the developer of
-Renard. Your questions, and the page's conversation when you turn on **Read
-chat**, go directly from your browser to the AI provider you chose. With the
-built-in model, they never leave your computer.
+## What Renard sends
 
-## What Renard handles
+When you ask a question, it goes directly from your browser to the provider you
+chose. If Read chat is on, the conversation on the page goes with it. On a
+website you added, the same switch is called Read page. It sends the page's
+visible text, its title, and its address with the query string and fragment
+removed. Renard trims long conversations to their most recent part and long
+pages to their beginning, and tells you when it does.
 
-| Data | When | Where it goes | Where it is kept |
-| --- | --- | --- | --- |
-| Your API key | When you enter it in Renard's settings | Sent only to your chosen provider, to authenticate each request | Your browser's extension storage, on your device, unencrypted |
-| Your question | When you ask Renard something | Your chosen provider | Not stored; shown on the page until it is cleared or reloaded |
-| The conversation on the page (chat messages and other page text) | Only when you send a question with **Read chat** on | Your chosen provider, with your question | Not stored |
-| On a website you added: the page's visible text, title, and address (without its query string or fragment) | Only when you send a question with **Read page** on | Your chosen provider, with your question | Not stored |
-| Websites you added | When you turn Renard on for a site in its toolbar menu | Nowhere | Your browser's extension storage, on your device |
-| The provider's answer | When it arrives | Shown on the page | Not stored; shown until cleared or reloaded |
-| Settings (provider, model, sites, display options, Renard's position and bubble size) | When you change them | Nowhere | Your browser's extension storage, on your device |
-| Built-in model files | When you click Download in settings | Downloaded from Hugging Face (huggingface.co); no question or chat is sent | Your browser's extension storage, until you delete them in settings or uninstall |
+Read chat starts on. You can turn it off in Renard's bubble, and Renard
+remembers your choice.
 
-**Read chat** (called **Read page** on websites you add) starts on. You can
-turn it off in Renard's bubble, and Renard remembers your choice.
+Renard reads the conversation or page text only at the moment you send a
+question with Read chat on. It doesn't read pages in the background. It does
+watch the page's layout and color theme, to keep out of the way of the site's
+content and match its light or dark theme. That information is never sent
+anywhere.
 
-Long conversations are trimmed to their most recent part, and long pages to
-their beginning, before they are sent, and Renard says when it did so.
+Your API key is sent only to its provider, to authenticate your requests.
 
-## Third parties
+With the built-in model, your questions and chats don't leave your computer at
+all (see "Built-in model" below).
 
-Requests go to the provider you select, under that provider's own terms and
-privacy policy:
+## What Renard keeps on your device
 
-- Anthropic: https://www.anthropic.com/legal/privacy
-- OpenAI: https://openai.com/policies/privacy-policy (Renard asks OpenAI not to
-  store responses, with `store: false`)
-- Google Gemini API: https://ai.google.dev/gemini-api/terms
+Your settings (provider, model, display options, the websites you added, where
+the fox sits, and the bubble's size) are kept in your browser's extension
+storage on your device and aren't sent anywhere. Built-in model files you
+download are kept there too, until you delete them in settings or uninstall
+Renard.
 
-The site you are on and the provider are independent. A conversation from
-chatgpt.com can be sent to Anthropic or Google, and one from claude.ai to
-OpenAI or Google.
+Your API key is also kept in extension storage, unencrypted. That's standard
+for extensions where you bring your own key, but it means anyone with access to
+your browser profile could read it.
 
-On the Gemini API's free tier, Google's terms allow it to use submitted content
-and responses to improve its products, and human reviewers may read them.
-Requests on a paid Gemini plan are not used for product improvement.
-
-## What Renard does not do
-
-- It has no analytics, tracking, or advertising.
-- It does not sell, share, or transfer your data to anyone other than the
-  provider you choose, and only to answer your question.
-- It does not read pages in the background. It reads the conversation or page
-  text only at the moment you send a question with **Read chat** on. (To stay
-  out of the way, it does watch the page's layout and color theme, which it
-  never sends anywhere.)
-- It runs only on claude.ai, chatgpt.com, chat.openai.com, and secure (https)
-  websites you add one at a time, and only on the sites you have turned on.
-
-## What the website can see
-
-Renard's bubble sits on the page you are on, but its contents (your
-question, the answer, and the text box) are in a separate frame that belongs
-to the extension. Browsers keep a website's scripts from reading or
-controlling that frame, so the website can't see what you type into Renard or
-the answers it shows. The website can tell that Renard is there and where its
-bubble and fox are, and Renard reads the page's own text when you ask with
-**Read chat** on. Your API key is never on the page.
+Renard doesn't store your questions, the answers, or page content. A question
+and its answer stay in the bubble until you clear them or reload the page.
 
 ## Built-in model
 
 When you choose the built-in model, Renard runs Gemma on your computer's
 graphics chip. Your questions, the conversation it reads, and its answers are
-processed only on your device. The model files come from Hugging Face, pinned
-to a fixed published version of each model, and Hugging Face
-receives an ordinary download request (as for any file you download) but none
-of your content. Gemma models are provided by Google under their own terms.
+processed only on your device.
+
+Renard downloads the model files once from Hugging Face (huggingface.co),
+always at a fixed published version of each model. Hugging Face gets an
+ordinary download request, as it would for any file you download, but none of
+your questions or chats. Gemma models are provided by Google under their own
+terms.
+
+## AI providers
+
+Requests to a provider fall under that provider's own terms and privacy policy:
+
+- Anthropic: https://www.anthropic.com/legal/privacy
+- OpenAI: https://openai.com/policies/privacy-policy
+- Google Gemini API: https://ai.google.dev/gemini-api/terms
+
+Renard asks OpenAI not to store responses (`store: false`).
+
+On the Gemini API's free tier, Google's terms allow it to use the content you
+send and the responses to improve its products, and human reviewers may read
+them. Requests on a paid Gemini plan are not used for product improvement.
+
+The site you're on and the provider you use are independent. A conversation
+from chatgpt.com can be sent to Anthropic or Google, and one from claude.ai to
+OpenAI or Google.
+
+## What the website can see
+
+Renard's bubble sits on the page, but your question, the answer, and the text
+box are in a separate extension frame. Browsers don't let a website's scripts
+read or control that frame, so the website can't see what you type into Renard
+or the answers it shows. The website can tell that Renard is there and where
+the fox and bubble are. Your API key is never on the page.
+
+## What Renard doesn't do
+
+Renard has no analytics, tracking, or advertising. It doesn't sell, share, or
+transfer your data to anyone other than the provider you choose, and then only
+to answer your question.
+
+It runs only on claude.ai, chatgpt.com, chat.openai.com, and secure (https)
+websites you add one at a time. On each of these, it runs only if you've
+turned it on.
 
 ## Permissions
 
-- **Storage:** to keep your settings and API key on your device.
-- **Unlimited storage:** so the browser keeps the built-in model's files
-  instead of clearing them when space runs low.
-- **Offscreen documents (Chrome only):** to run the built-in model in a hidden
-  extension page, which has access to the graphics chip.
-- **Access to claude.ai, chatgpt.com, and chat.openai.com:** to show the fox and
-  read the conversation when you ask with **Read chat** on.
-- **Scripting, active tab, and optional access to other websites:** when you
-  turn Renard on for a website in its toolbar menu, Renard asks your browser
-  for access to that one site and shows the fox there. Removing the site
-  gives the access back.
-- **Access to api.anthropic.com, api.openai.com, and
-  generativelanguage.googleapis.com:** to send your question to the provider
-  you chose.
+- Storage, to keep your settings and API key on your device.
+- Unlimited storage, so the browser keeps the built-in model's files instead
+  of clearing them when space runs low.
+- Offscreen documents (Chrome only), to run the built-in model in a hidden
+  extension page with access to the graphics chip.
+- Access to claude.ai, chatgpt.com, and chat.openai.com, to show the fox and
+  read the conversation when you ask with Read chat on.
+- Scripting, active tab, and optional access to other websites. When you turn
+  Renard on for a website from its toolbar menu, Renard asks your browser for
+  access to that one site and shows the fox there. Removing the site gives the
+  access back.
+- Access to api.anthropic.com, api.openai.com, and
+  generativelanguage.googleapis.com, to send your question to the provider you
+  chose.
 
 ## Removing your data
 
-Remove your API key in Renard's settings at any time. Uninstalling Renard
-deletes its settings and key from your browser. Data already sent to a provider
-is governed by that provider's policy.
+You can remove your API key, and delete downloaded model files, in Renard's
+settings at any time. Uninstalling Renard deletes its settings and key from
+your browser. Anything already sent to a provider is covered by that
+provider's policy.
 
 ## Contact
 
-Questions about this policy or Renard's handling of data: open an issue at
-https://github.com/YeziShanYang/renard-companion/issues.
+If you have questions about this policy or how Renard handles data, open an
+issue at https://github.com/YeziShanYang/renard-companion/issues.
