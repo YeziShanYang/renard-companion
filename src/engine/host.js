@@ -1,14 +1,22 @@
 // Chrome: hosts the built-in model in an offscreen document, since the
-// extension's service worker can't keep a GPU model loaded. The service
-// worker connects with a port per request; disconnecting cancels it.
+// extension's service worker can't keep a GPU model loaded. For each request
+// the service worker sends a message, and this document opens a port back to
+// it for the request; disconnecting cancels it.
+//
+// This document has no runtime.onConnect listener on purpose. Chrome hands
+// each port opened in the extension to every document that listens, and a
+// port held here would keep a page's question or a settings download
+// connected after the service worker stopped, so the page would never hear
+// that its answer was lost.
 import { handle } from './engine.js';
 
 const ext = globalThis.browser ?? globalThis.chrome;
 
-ext.runtime.onConnect.addListener((port) => {
+ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Only the background service worker: content scripts and the settings tab
   // have a sender tab.
-  if (port.name !== 'renard:engine' || port.sender?.id !== ext.runtime.id || port.sender.tab) return;
+  if (!msg || msg.type !== 'renard:engineCall' || typeof msg.id !== 'string' || sender.id !== ext.runtime.id || sender.tab) return false;
+  const port = ext.runtime.connect({ name: `renard:engine:${msg.id}` });
   const controller = new AbortController();
   let open = true;
   const post = (m) => {
@@ -18,11 +26,13 @@ ext.runtime.onConnect.addListener((port) => {
     open = false;
     controller.abort();
   });
-  port.onMessage.addListener((msg) => {
-    if (!msg || !msg.type) return;
-    handle(msg.type, msg, post, controller.signal).then(
+  port.onMessage.addListener((req) => {
+    if (!req || !req.type) return;
+    handle(req.type, req, post, controller.signal).then(
       (result) => post({ type: 'result', result }),
       (err) => post({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err) }),
     );
   });
+  sendResponse({ ok: true });
+  return false;
 });

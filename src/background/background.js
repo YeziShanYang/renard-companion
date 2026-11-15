@@ -287,6 +287,7 @@ function forgetLocal(key) {
 
 const ENGINE_IN_PAGE = typeof document !== 'undefined';
 let creatingOffscreen = null;
+const engineCalls = new Map(); // request id -> receives the request's port
 
 async function ensureOffscreen() {
   const url = ext.runtime.getURL('engine/offscreen.html');
@@ -318,28 +319,45 @@ async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
     throw new ProviderError('unknown', 'In Chrome, load the dist/chrome build (npm run build:chrome) to use the built-in model.');
   }
   await ensureOffscreen();
+  const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
-    const port = ext.runtime.connect({ name: 'renard:engine' });
+    let port = null;
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
-      port.disconnect();
+      engineCalls.delete(id);
+      if (port) port.disconnect();
       fn(value);
     };
-    port.onMessage.addListener((m) => {
-      if (m.type === 'result') finish(resolve, m.result);
-      else if (m.type === 'error') finish(reject, new ProviderError(m.kind || 'unknown', m.message));
-      else onEvent(m);
+    engineCalls.set(id, (p) => {
+      port = p;
+      port.onMessage.addListener((m) => {
+        if (m.type === 'result') finish(resolve, m.result);
+        else if (m.type === 'error') finish(reject, new ProviderError(m.kind || 'unknown', m.message));
+        else onEvent(m);
+      });
+      port.onDisconnect.addListener(() => finish(reject, new ProviderError('network', 'The built-in model stopped unexpectedly.')));
+      port.postMessage(msg);
     });
-    port.onDisconnect.addListener(() => finish(reject, new ProviderError('network', 'The built-in model stopped unexpectedly.')));
     if (signal) {
       if (signal.aborted) finish(reject, new ProviderError('aborted', 'Request cancelled'));
       signal.addEventListener('abort', () => finish(reject, new ProviderError('aborted', 'Request cancelled')));
     }
-    port.postMessage(msg);
+    // The offscreen document answers by opening this request's port (see
+    // engine/host.js for why it doesn't accept one).
+    ext.runtime.sendMessage({ type: 'renard:engineCall', id }).catch(() => finish(reject, new ProviderError('network', 'The built-in model is not running.')));
   });
 }
+
+// A port the offscreen document opened for one engine request.
+ext.runtime.onConnect.addListener((port) => {
+  const prefix = 'renard:engine:';
+  if (!port.name.startsWith(prefix) || port.sender?.id !== ext.runtime.id || port.sender.url !== ext.runtime.getURL('engine/offscreen.html')) return;
+  const start = engineCalls.get(port.name.slice(prefix.length));
+  if (start) start(port);
+  else port.disconnect(); // a request that was cancelled meanwhile
+});
 
 // The chat or page text sent with a question, trimmed to the budget. Tells
 // the page how much was included.
