@@ -32,7 +32,7 @@ below.
 
 ## Setup
 
-Requirements: Node.js 20 or later, Firefox 140 or later (primary), or a
+Requirements: Node.js 20 or later, Firefox 142 or later (primary), or a
 Chromium-based browser.
 
 ```sh
