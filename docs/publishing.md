@@ -99,6 +99,32 @@ Both stores can use the same copy.
    Renard's content security policy would block those code paths. The
    built-in model's files are pinned to a Hugging Face commit (`revision` in
    `src/shared/constants.js`).
+   Platforms: Firefox only. Renard isn't built for Firefox for Android (the
+   fox lives in desktop page margins, the shortcuts need a keyboard, and the
+   built-in model needs WebGPU).
+
+   **Notes to reviewer** (paste, updating versions and hashes if the
+   libraries change):
+
+   > The three linter warnings (eval / Function constructor / dynamic import)
+   > are all inside unmodified third-party files in vendor/transformers/:
+   > transformers.min.js is dist/transformers.min.js from the npm package
+   > @huggingface/transformers 4.3.2, and ort-wasm-simd-threaded.asyncify.mjs
+   > and .wasm are from dist/ of onnxruntime-web
+   > 1.31.0-dev.20260914-8d85527a0 (the version Transformers.js 4.3.2 pins).
+   > They are copied byte for byte by scripts/vendor.mjs; SHA-256s are listed
+   > below. The extension's CSP (script-src 'self' 'wasm-unsafe-eval') does
+   > not allow eval or new Function, and the one dynamic import loads the
+   > bundled .mjs file from the extension itself (env.backends.onnx.wasm.wasmPaths
+   > points at vendor/transformers/). No code is downloaded at run time; the
+   > built-in model's weights are data files from Hugging Face, pinned to a
+   > commit (revision in src/shared/constants.js). Full source:
+   > https://github.com/YeziShanYang/renard-companion (GPL-3.0).
+   >
+   > SHA-256: transformers.min.js 8b5a3171f8876bab2b1820a7d65eb87628e3d30bb5ea85b9dd398e76eb34decb;
+   > ort-wasm-simd-threaded.asyncify.mjs 0966b6105cd936744498aa60df7a22cbd47af3374dbc64a9ab561c08a71e3611;
+   > ort-wasm-simd-threaded.asyncify.wasm 49871f5a4409519797e127440868a6d1923339d9185907f301a5b2a1d90af082.
+
 5. **Listing details:** name, summary (250 characters or fewer), description,
    categories, support site (the repository's issues page), license (GNU
    General Public License v3.0), and the privacy policy URL.
