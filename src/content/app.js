@@ -79,7 +79,9 @@
       this.timers = {};
       this.observers = [];
       this.lastHref = location.href;
-      this.bubbleSize = { ...state.bubble };
+      // The reading view is for the page it was opened on; a new page starts
+      // with the compact bubble.
+      this.bubbleSize = { ...state.bubble, expanded: false };
       this.shortcuts = {};
       this.lastCommand = null;
     }
@@ -129,6 +131,11 @@
           this.command(cmd, 'page');
         },
         onBlip: () => this.blip(),
+        // The content now needs a different height (an answer arrived, or was
+        // cleared): the room the bubble is given may change.
+        onMinHeight: () => {
+          if (this.bubble.isOpen && !this.freePlaced && !this.bubble.el.dataset.resizing) this.placeBubble();
+        },
       });
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
@@ -154,6 +161,7 @@
         }
         for (const o of this.observers) o.disconnect();
         window.removeEventListener('resize', this.onResize);
+        window.removeEventListener('scroll', this.onScroll, { capture: true });
         window.removeEventListener('keydown', this.onKeyDown, true);
         this.colorScheme.removeEventListener('change', this.onSchemeChange);
         this.fox.cancelMotion();
@@ -261,6 +269,18 @@
       };
       window.addEventListener('resize', this.onResize);
 
+      // The site's message box can move as the page scrolls.
+      let scrollQueued = false;
+      this.onScroll = () => {
+        if (scrollQueued || !this.bubble.isOpen || this.freePlaced) return;
+        scrollQueued = true;
+        requestAnimationFrame(() => {
+          scrollQueued = false;
+          if (this.bubble.isOpen && !this.freePlaced && !this.bubble.el.dataset.resizing) this.placeBubble();
+        });
+      };
+      window.addEventListener('scroll', this.onScroll, { passive: true, capture: true });
+
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
         if (this.orphaned()) return;
@@ -319,7 +339,7 @@
       }
       this.bubble.setReadChat(state.prefs.readChat);
       // A bubble placed or being resized by hand keeps its size.
-      if (!this.freePlaced && !this.bubble.el.dataset.resizing) this.bubbleSize = { ...state.bubble };
+      if (!this.freePlaced && !this.bubble.el.dataset.resizing) this.bubbleSize = { ...state.bubble, expanded: this.bubbleSize.expanded };
       this.shortcuts = {};
       for (const [cmd, text] of Object.entries(state.shortcuts || {})) {
         const parsed = R.parseShortcut(text);
@@ -758,64 +778,88 @@
       let left = side === 'left' ? r.left + overlap - width : r.right - overlap;
       left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - MARGIN - width));
 
-      // Lowest point the bubble may reach: the viewport, or just above the
-      // site's message input when the bubble would otherwise cover it.
+      // Before a question the bubble fits its content (the line and the
+      // input): the reading view's height and a dragged-out height wait for
+      // an answer.
+      const answering = this.bubble.hasAnswer();
+      const fill = expanded && answering;
+      // The height the bubble needs to show everything without clipping.
+      const need = Math.min(Math.max(this.bubble.minHeight, 200), vh - 2 * MARGIN);
+      // The bubble keeps clear of the site's message box when there is room
+      // for it on the fox's side of the box, ending at most a little above
+      // the fox. A box farther up, level with the fox, is covered instead:
+      // moving away from the fox to avoid it would leave the tail pointing
+      // at nothing.
       let floor = vh - MARGIN;
+      let ceiling = MARGIN;
       const comp = attempt(() => this.adapter.composerRect());
-      if (comp && comp.left < left + width && comp.right > left && comp.top < floor) {
-        floor = Math.max(MARGIN + 220, comp.top - MARGIN);
+      if (comp && comp.left < left + width && comp.right > left) {
+        if (comp.top - MARGIN >= r.top - 48) floor = comp.top - MARGIN;
+        else if (comp.bottom + MARGIN <= r.bottom) ceiling = comp.bottom + MARGIN;
       }
       const headY = r.top + r.height * 0.3;
-      // A size the user dragged out applies once there is an answer to show;
-      // before that the bubble fits its content.
-      const sized = !expanded && this.bubbleSize.height && this.bubble.hasAnswer() ? this.bubbleSize.height : 0;
-      const common = { side, left, width, expanded };
+      const common = { side, left, width, expanded: fill, pressed: expanded };
 
       if (r.top + r.height / 2 < vh * 0.45) {
         // Fox in the upper part of the screen: hang the bubble from beside it
         // and let it grow downward.
         const top = Math.max(MARGIN, r.top - 24);
-        const maxHeight = Math.max(200, floor - top);
+        const bottom = floor - top >= need ? floor : vh - MARGIN;
+        const maxHeight = Math.max(bottom - top, Math.min(need, vh - MARGIN - top));
         this.bubble.place({
           ...common,
           anchor: 'top',
           offset: top,
-          height: Math.min(sized, maxHeight),
+          height: this.sizedHeight(answering && !fill, maxHeight),
           maxHeight,
           tailOffset: headY - top - 4,
           expandedHeight: Math.min(vh * 0.8, maxHeight),
         });
         return;
       }
-      // Otherwise grow upward from a fixed bottom edge, so the input stays
-      // put while an answer streams in.
-      const bottomY = Math.min(floor, Math.max(r.bottom + 12, MARGIN + 300));
-      const maxHeight = Math.max(160, bottomY - MARGIN);
+      // Otherwise grow upward from a fixed bottom edge beside the fox, so the
+      // input stays put while an answer streams in.
+      let bottomY = Math.min(floor, Math.max(r.bottom + 12, MARGIN + 300));
+      if (bottomY - MARGIN < need) bottomY = Math.min(vh - MARGIN, Math.max(r.bottom + 12, MARGIN + 300));
+      const top = bottomY - ceiling >= need ? ceiling : MARGIN;
+      const maxHeight = Math.max(160, bottomY - top);
       this.bubble.place({
         ...common,
         anchor: 'bottom',
         offset: vh - bottomY,
-        height: Math.min(sized, maxHeight),
+        height: this.sizedHeight(answering && !fill, maxHeight),
         maxHeight,
         tailOffset: bottomY - headY - 8,
         expandedHeight: Math.min(vh * 0.8, maxHeight),
       });
     }
 
+    // A height the user dragged out, while there is an answer to show: never
+    // less than the content needs, never more than the room there is.
+    sizedHeight(applies, maxHeight) {
+      if (!applies || !this.bubbleSize.height) return 0;
+      return Math.min(Math.max(this.bubbleSize.height, this.bubble.minHeight), maxHeight);
+    }
+
+    // The larger reading view. Leaving it goes back to the size the bubble
+    // opened at, fitted to its content.
     toggleExpand() {
-      this.bubbleSize.expanded = !this.bubbleSize.expanded;
+      const expanded = !this.bubbleSize.expanded;
+      this.bubbleSize = expanded ? { ...this.bubbleSize, expanded } : { ...this.bubbleSize, height: 0, expanded };
+      this.freePlaced = false;
       this.placeBubble();
       this.saveBubble();
     }
 
     // Corner drag: the dragged corner follows the pointer and the opposite
     // corner stays put. The bubble keeps that spot until it next closes; the
-    // size is remembered.
+    // size is remembered. It never gets shorter than its content needs, and
+    // before a question it fits its content, so dragging sets the width only.
     resizeBubble({ corner, rect, dx, dy }) {
       const vw = innerWidth;
       const vh = innerHeight;
       const minW = Math.min(300, vw - 2 * MARGIN);
-      const minH = 180;
+      const minH = Math.min(Math.max(120, this.bubble.minHeight), vh - 2 * MARGIN);
       let { left, top, right, bottom } = rect;
       if (corner.includes('w')) left = Math.min(Math.max(rect.left + dx, MARGIN), right - minW);
       if (corner.includes('e')) right = Math.max(Math.min(rect.right + dx, vw - MARGIN), left + minW);
@@ -823,6 +867,11 @@
       if (corner.includes('s')) bottom = Math.max(Math.min(rect.bottom + dy, vh - MARGIN), top + minH);
       const width = right - left;
       const height = bottom - top;
+      if (!this.bubble.hasAnswer()) {
+        this.bubbleSize = { ...this.bubbleSize, width: Math.round(width), expanded: false };
+        this.placeBubble();
+        return;
+      }
       this.bubbleSize = { width: Math.round(width), height: Math.round(height), expanded: false };
       this.freePlaced = true;
       const r = this.fox.rect();
@@ -841,7 +890,7 @@
     }
 
     saveBubble() {
-      R.send('renard:saveBubble', { bubble: this.bubbleSize }).catch(() => {});
+      R.send('renard:saveBubble', { bubble: { ...this.bubbleSize, expanded: false } }).catch(() => {});
     }
 
     setReadChat(on) {
@@ -1017,7 +1066,10 @@
       this.bubble.reset();
       this.bubble.setLine(this.line('cleared'), { onChar: this.blip });
       if (['thinking', 'reacting'].includes(this.mode)) this.rest();
-      if (!this.freePlaced) this.placeBubble();
+      // Back to the compact bubble it opened as.
+      this.bubbleSize.expanded = false;
+      this.freePlaced = false;
+      this.placeBubble();
       this.bubble.focusInput();
     }
 
