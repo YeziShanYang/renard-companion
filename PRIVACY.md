@@ -65,10 +65,13 @@ Requests on a paid Gemini plan are not used for product improvement.
 
 ## What the website can see
 
-Renard's bubble is drawn inside the page you are on. Like anything else typed
-on that page, what you type into Renard and the answers it shows can be
-observed by the website's own scripts. Your API key is never on the page. Add
-Renard only to websites you trust with your questions.
+Renard's bubble sits on the page you are on, but its contents (your
+question, the answer, and the text box) are in a separate frame that belongs
+to the extension. Browsers keep a website's scripts from reading or
+controlling that frame, so the website can't see what you type into Renard or
+the answers it shows. The website can tell that Renard is there and where its
+bubble and fox are, and Renard reads the page's own text when you ask with
+**Read chat** on. Your API key is never on the page.
 
 ## Built-in model
 

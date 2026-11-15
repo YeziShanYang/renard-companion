@@ -165,9 +165,10 @@ field would otherwise take the key first.
 - On a website you add, Renard sends the page's visible text, title, and
   address without its query string or fragment, and only with **Read page**
   on.
-- Renard's bubble is part of the page, so the site's own scripts can see what
-  is typed into it, as with anything typed on that site. The API key is
-  never on the page.
+- The bubble's contents (question, answer, text box) live in an extension
+  frame that the site's scripts can't read or script, so the site can't see
+  what is typed into Renard or what it answers. The API key is never on the
+  page.
 
 ## How it works
 
@@ -177,7 +178,8 @@ src/
   background/            API calls, settings, asset delivery, badge, shortcuts
   shared/                constants, settings access, provider clients, prompt
   engine/                built-in model (Transformers.js on WebGPU)
-  content/               on-page UI (closed Shadow DOM)
+  content/               on-page UI: the fox and the bubble's outline (closed Shadow DOM)
+  bubble/                the bubble's contents, in an extension frame
     adapters/            per-site chat reading, composer location, theme; web.js reads any other page
   popup/                 toolbar menu (show Renard, this site, settings)
   options/               settings page
@@ -189,10 +191,19 @@ scripts/                 icon generator, engine vendoring, store packaging
 test/                    unit tests (node --test)
 ```
 
-- **Content script** builds the fox and bubble inside a closed Shadow DOM, so
-  site styles and Renard's styles never mix. It loads the sprite, fonts, and
-  stylesheet as bytes from the background script and draws the sprite on a
-  canvas, so the host page's Content Security Policy is never involved.
+- **Content script** builds the fox and the bubble's outline inside a closed
+  Shadow DOM, so site styles and Renard's styles never mix. It loads the
+  sprite, fonts, and stylesheet as bytes from the background script and draws
+  the sprite on a canvas, so the host page's Content Security Policy is never
+  involved.
+- **Bubble frame** (`bubble/`) holds everything the user reads and types: an
+  extension page in an iframe inside the bubble, which the site can neither
+  read nor script (and which isn't listed in the page's `window.frames`).
+  The content script drives it over a `MessageChannel` handed to the frame
+  with a one-time key; the key travels through the background script, which
+  sites can't reach, so a site that got hold of the frame couldn't open a
+  channel of its own. Keys typed in the frame never reach the site, so the
+  frame handles Esc and Renard's shortcuts itself.
 - **Site adapters** (`content/adapters/`) are the only site-specific code: how to
   read user and assistant turns, where the message input is (so the bubble
   avoids covering it), and the page theme. When an adapter can't find messages
