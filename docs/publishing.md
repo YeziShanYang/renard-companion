@@ -32,6 +32,50 @@ each.
 5. **Privacy policy.** Both stores ask for a public URL; use
    [`PRIVACY.md`](../PRIVACY.md) on GitHub.
 
+## Listing text
+
+Both stores can use the same copy.
+
+**Name:** Renard
+
+**Summary** (under 250 characters):
+
+> A pixel-art fox that lives in the margins of claude.ai, ChatGPT, and sites
+> you add. Ask it anything: it answers with your own Anthropic, OpenAI, or
+> Gemini API key, or a Gemma model that runs on your computer.
+
+**Description:**
+
+> Renard is a small pixel-art fox that wanders the side margins of claude.ai
+> and ChatGPT, and of any other website you turn it on for. Click it, ask a
+> question, and the answer streams into a large, readable panel.
+>
+> - Bring your own key: Anthropic, OpenAI, or Google Gemini. Questions go
+>   straight from your browser to the provider you choose; there is no Renard
+>   server.
+> - Or use the built-in model: download Gemma once and it runs on your
+>   computer's graphics chip, with no key and nothing sent anywhere.
+> - Read chat: include the conversation on the page, so "summarize this chat"
+>   works. On other websites it reads the page instead. Turn it off any time.
+> - Your questions and answers stay out of the website's reach: the panel is
+>   a separate extension frame that the site can't read.
+> - Drag the fox anywhere, resize the panel from any corner, and use
+>   Alt+Shift+F to open it or Alt+Shift+H to hide the fox.
+> - The toolbar menu shows or hides Renard everywhere, or turns it on for the
+>   site you're on.
+>
+> The fox's personality is scripted; the AI is only the answer engine.
+>
+> Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by
+> Elthen ("2D Pixel Art Fox Sprites"); Silkscreen font under the SIL Open Font
+> License.
+
+**Category:** Productivity on the Chrome Web Store; the closest AMO category (such as Other).
+
+**Support site:** https://github.com/YeziShanYang/renard-companion/issues
+
+**Privacy policy:** https://github.com/YeziShanYang/renard-companion/blob/main/PRIVACY.md
+
 ## Firefox (addons.mozilla.org)
 
 1. Sign in at https://addons.mozilla.org/developers/ and choose **Submit a New
