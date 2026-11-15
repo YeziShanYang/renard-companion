@@ -8,173 +8,159 @@
 
 ![Renard's answer bubble open beside the fox on a dark page, answering "why 256 per token vector"](docs/screenshot.webp)
 
-Renard is a pixel-art fox companion that helps you read, summarize, and make
-sense of the page you're on. It lives in the side margins of claude.ai and
-chatgpt.com (and of any other website you add), wandering around a little
-while it waits. Click it and ask a question: the answer streams into a large,
-readable panel.
+Renard puts a pixel-art fox in the side margins of claude.ai and chatgpt.com,
+and you can turn it on for other sites too. Click the fox to ask about the
+page, and the answer streams into a large reading panel. Between questions it
+wanders around and eventually naps.
 
-**No API key needed.** Renard runs Gemma, Google's open model, right on the
-computer's graphics chip: download it once in settings and it works offline,
-with nothing leaving the machine. Anthropic, OpenAI, and Gemini are there too,
-for anyone who wants a larger model and adds an API key.
+You don't need an API key. Renard can run Gemma, Google's open model, on your
+graphics chip. After a one-time download in settings it works offline, and your
+questions never leave your computer. For a bigger model, add an Anthropic,
+OpenAI, or Gemini key instead.
 
-With **Read chat** on, the conversation open on the page is sent along as
-context, so questions like "summarize this chat" work. On other websites the
-switch reads **Read page** and sends the page's text instead.
+With Read chat on (the default), the conversation on the page goes along with
+your question, for requests like "summarize this chat". On other sites the same
+switch is called Read page and sends the page's text.
 
-The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
-animations. The AI is only the answer engine and has no persona.
+The fox's lines (`src/lines.json`) and animations are scripted. The model only
+writes answers and has no persona.
 
-Renard is open source (GPL-3.0) and runs in Firefox (its primary browser) and
-Chrome. It is not on the add-on stores yet; load it from source as described
-below.
+Renard runs in Firefox, its main target, and in Chrome. It isn't on the add-on
+stores yet, so for now you load it from source.
 
 ## Setup
 
-Requirements: Node.js 20 or later, Firefox 142 or later (primary), or a
-Chromium-based browser.
+You need Node.js 20 or later. Renard runs in Firefox 142 or later and in
+Chromium-based browsers.
 
 ```sh
 npm install
 ```
 
-`npm install` also copies the built-in model's engine (Transformers.js and
-ONNX Runtime Web, about 28 MB) into `src/vendor/` (git-ignored). The
-extension needs none of the dependencies' own install scripts, so
-`npm ci --ignore-scripts && npm run vendor` works too.
+`npm install` also copies the built-in model's engine (Transformers.js and ONNX
+Runtime Web, about 28 MB) into the git-ignored `src/vendor/`. Renard doesn't
+need any dependency's install scripts. To skip them, run
+`npm ci --ignore-scripts && npm run vendor` instead.
 
 ### Sprite sheet
 
-Renard uses "2D Pixel Art Fox Sprites" by Elthen. The license does not allow
-redistributing the art, so it is not in this repository. Get the pack from
-Elthen's itch.io page and save the sheet as:
+The fox art is "2D Pixel Art Fox Sprites" by Elthen. The sheet isn't in this
+repo because its license doesn't allow redistributing the art. Get the pack
+from Elthen's itch.io page and save the sheet as
+`src/assets/fox-sprite-sheet.png`. It should be 448×224 px, with 32×32 frames in
+14 columns and 7 rows and the fox facing right. Without the sheet, Renard still
+works and shows a static placeholder fox.
 
-```
-src/assets/fox-sprite-sheet.png
-```
+The toolbar icon doesn't come from the sheet. `scripts/make-icons.mjs` draws an
+original fox head for it, and the generated icons are committed. Run
+`npm run icons` after editing that art.
 
-The sheet is 448×224 px: 32×32 frames in a 14-column × 7-row grid, fox facing
-right. Without it, Renard still works and shows a static placeholder fox.
-
-The toolbar icon is a separate, original fox head drawn for Renard (in
-`scripts/make-icons.mjs`), so it is committed and does not depend on the sheet.
-Run `npm run icons` after editing that art.
-
-### Run in Firefox
+### Firefox
 
 ```sh
 npm start
 ```
 
-This launches Firefox with Renard loaded through `web-ext`, reloading on file
-changes. To load it into your own Firefox profile instead, open
-`about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and
-pick `src/manifest.json` (removed when Firefox restarts).
+This opens Firefox with Renard loaded through `web-ext` and reloads the
+extension when files change. To load it into your own profile instead, open
+`about:debugging#/runtime/this-firefox`, click Load Temporary Add-on, and pick
+`src/manifest.json`. Firefox removes it on restart.
 
 Firefox treats host access as optional for Manifest V3 extensions. If the
-toolbar icon shows a **!** badge, open Renard's settings and use **Allow
-access** for each site and for the API.
+toolbar icon has a `!` badge, open Renard's settings and click Allow access for
+each site and for the API.
 
-### Run in Chrome
+### Chrome
 
-`src/manifest.json` is written for Firefox, so Chrome loads a generated build:
+Chrome can't load `src/` directly because its manifest is written for Firefox.
+Build a Chrome copy first:
 
 ```sh
 npm run build:chrome
 ```
 
-Then open `chrome://extensions`, turn on **Developer mode**, choose **Load
-unpacked**, and select `dist/chrome/`. Rerun `npm run build:chrome` (and click
-reload) after changing files. `npm run start:chrome` builds it and opens a
-fresh Chrome profile with Renard loaded.
+Then open `chrome://extensions`, turn on Developer mode, click Load unpacked,
+and choose `dist/chrome/`. After changing files, run `npm run build:chrome`
+again and click reload. `npm run start:chrome` builds it and opens a fresh
+Chrome profile with Renard loaded.
 
 ### First run
 
-The settings page opens on install (it is also in the toolbar menu). Choose a
-provider, paste an API key, and pick a model; loading the model list doubles as
-the key check. Or choose **Built-in** and download a Gemma model to run without
-a key (see below).
+Settings opens when you install, and you can reopen it from the toolbar menu.
+To use an API, pick a provider and paste a key. Renard checks the key by
+loading the provider's model list, and then you choose a model. To skip the
+key, pick Built-in and download Gemma.
 
 ## Built-in model
 
-Choosing **Built-in** in settings runs Gemma on the computer's graphics chip
-through WebGPU, with no API key. The model downloads once from Hugging Face,
-is kept in the browser's extension storage, and works offline after that;
-settings shows the space used and can delete it.
+The Built-in provider runs Gemma on your graphics chip through WebGPU. The
+model downloads once from Hugging Face into the browser's extension storage and
+works offline after that. Settings shows how much space it takes and can delete
+it.
 
-| Model | Download (Chrome / Firefox) | Notes |
-| --- | --- | --- |
-| Gemma 3 1B (default) | 0.8 / 0.9 GB | Quick and light; short questions and summaries |
-| Gemma 4 E2B | 3.1 / 3.6 GB | Noticeably smarter; needs about 5 GB of free memory |
+There are two models:
 
-It needs WebGPU: Chrome 113 or later, or Firefox 147 or later on Apple Silicon
-Macs and Windows (not yet Intel Macs or Linux). Firefox uses the `q4` builds,
-because its WebGPU rejects a shader in the `q4f16` builds that Chrome uses. In
-testing on an Apple Silicon Mac, Gemma 3 1B started answering in about half a
-second and wrote about 8 tokens per second in Firefox; Chrome is faster. Read
-chat sends a shorter part of the conversation to the built-in model.
+- Gemma 3 1B (default): 0.8 GB in Chrome, 0.9 GB in Firefox. Quick and light,
+  good for short questions and summaries.
+- Gemma 4 E2B: 3.1 GB in Chrome, 3.6 GB in Firefox. Noticeably smarter, but it
+  needs about 5 GB of free memory.
+
+WebGPU is required. That means Chrome 113 or later, or Firefox 147 or later on
+Apple Silicon Macs and Windows. Firefox doesn't support WebGPU on Intel Macs or
+Linux yet.
+
+The Firefox downloads are larger because Firefox gets the `q4` builds. Its
+WebGPU rejects a shader in the `q4f16` builds that Chrome uses.
+
+In testing on an Apple Silicon Mac, Gemma 3 1B started answering in about half a
+second and wrote about 8 tokens per second in Firefox. Chrome was faster. Read
+chat sends less of the conversation to the built-in model than to the API
+providers.
 
 ## Using Renard
 
-| Action | Result |
-| --- | --- |
-| Click the fox | Opens the bubble with a text box |
-| Enter / Shift+Enter | Ask / new line |
-| **Read chat** switch | Include the conversation on the page (**Read page** on other websites: the page's text) |
-| Drag the fox | Drop it anywhere; it runs back into the nearest side margin (side and height remembered per site) |
-| Esc or ✕ | Close the bubble |
-| Expand button | Larger reading view |
-| Drag any corner of the bubble | Resize it in both directions (size remembered) |
-| Copy / Clear buttons | Copy the answer / clear the question and answer |
-| Alt+Shift+F | Open or close the bubble |
-| Alt+Shift+H | Hide or show Renard |
+    Click the fox     open the bubble
+    Enter             ask
+    Shift+Enter       new line
+    Esc or ✕          close the bubble
+    Alt+Shift+F       open or close the bubble
+    Alt+Shift+H       hide or show Renard
 
-Clicking Renard's toolbar icon opens a small menu:
+The expand button opens a larger reading view. Drag any corner of the bubble to
+resize it, and Renard remembers the size. Copy and Clear buttons appear once
+there's an answer.
 
-- **Show Renard** sends the fox home from every tab, or brings it back
-  (on by default).
-- **On this site** turns Renard on or off for the website in the current tab.
-  For a new website, the browser asks for access to that one site; Renard
-  then appears there right away and on later visits. Added sites are listed
-  in settings under Sites, where they can be removed. Only secure (https)
-  pages can be added.
-- **Open settings** opens the settings page.
+You can drag the fox anywhere. When you let go, it runs back to the nearest side
+margin. Renard keeps track of the side and height for each site.
 
-On macOS, Alt is Option. Shortcuts can be changed in Firefox under
-`about:addons` → gear menu → **Manage Extension Shortcuts**, or in Chrome at
-`chrome://extensions/shortcuts`; Renard picks up the new keys. They also work
-while typing in Renard's bubble or the site's message box, where a focused text
-field would otherwise take the key first.
+Clicking the toolbar icon opens a small menu:
+
+- Show Renard sends the fox home on every tab, or brings it back. It's on by
+  default.
+- On this site turns Renard on or off for the site in the current tab. The
+  first time, the browser asks for access to just that site. Renard then shows
+  up right away and on every later visit. Only https sites can be added, and
+  you can remove them in settings under Sites.
+- Open settings goes to the settings page.
+
+On macOS, Alt is Option. To change the shortcuts, go to `about:addons` → gear
+menu → Manage Extension Shortcuts in Firefox, or to
+`chrome://extensions/shortcuts` in Chrome. Renard picks up the new keys.
+
+The shortcuts also work while you're typing in the bubble or in the site's
+message box. A focused text field would normally take the key first, so Renard
+listens for the keys itself.
 
 ## Privacy
 
-- Questions go directly from the browser to the chosen provider. There is no
-  Renard server.
-- Chat content is read only when a question is sent with **Read chat** on, and
-  is never stored. Long chats are trimmed to the most recent part, and Renard
-  says when it did so.
-- The site and the provider are independent: a ChatGPT conversation can be sent
-  to Anthropic or Google, and a Claude conversation to OpenAI or Google.
-- On the Gemini API's free tier, Google's terms allow it to use submitted
-  content and responses to improve its products, and human reviewers may read
-  them. Paid-tier requests are not used for product improvement (and in the EEA,
-  Switzerland, and the UK the paid-tier terms apply to all use).
-- API keys are kept in `storage.local` on the device, unencrypted, as is
-  standard for bring-your-own-key extensions. Only the background script and the
-  settings page read them; the script injected into the page never does.
-- OpenAI requests set `store: false`. Gemini keys are sent in the
-  `x-goog-api-key` header, never in request URLs.
-- With the built-in model, questions and chats never leave the computer. The
-  only network traffic is the one-time model download from Hugging Face,
-  pinned to a fixed commit of each model's repository.
-- On a website you add, Renard sends the page's visible text, title, and
-  address without its query string or fragment, and only with **Read page**
-  on.
-- The bubble's contents (question, answer, text box) live in an extension
-  frame that the site's scripts can't read or script, so the site can't see
-  what is typed into Renard or what it answers. The API key is never on the
-  page.
+There's no Renard server. Questions go straight from your browser to the
+provider you picked, and with the built-in model they don't leave your
+computer. The page's chat or text is read only when you send a question with
+Read chat on, and it isn't stored.
+
+API keys are stored unencrypted in `storage.local`. Only the background script
+and the settings page read them. See [PRIVACY.md](PRIVACY.md) for the full
+policy.
 
 ## How it works
 
@@ -185,8 +171,8 @@ src/
   shared/                constants, settings access, provider clients, prompt
   engine/                built-in model (Transformers.js on WebGPU)
   content/               on-page UI: the fox and the bubble's outline (closed Shadow DOM)
-  bubble/                the bubble's contents, in an extension frame
     adapters/            per-site chat reading, composer location, theme; web.js reads any other page
+  bubble/                the bubble's contents, in an extension frame
   popup/                 toolbar menu (show Renard, this site, settings)
   options/               settings page
   lines.json             canned fox lines
@@ -197,87 +183,87 @@ scripts/                 icon generator, engine vendoring, store packaging
 test/                    unit tests (node --test)
 ```
 
-- **Content script** builds the fox and the bubble's outline inside a closed
-  Shadow DOM, so site styles and Renard's styles never mix. It loads the
-  sprite, fonts, and stylesheet as bytes from the background script and draws
-  the sprite on a canvas, so the host page's Content Security Policy is never
-  involved.
-- **Bubble frame** (`bubble/`) holds everything the user reads and types: an
-  extension page in an iframe inside the bubble, which the site can neither
-  read nor script (and which isn't listed in the page's `window.frames`).
-  The content script drives it over a `MessageChannel` handed to the frame
-  with a one-time key; the key travels through the background script, which
-  sites can't reach, so a site that got hold of the frame couldn't open a
-  channel of its own. Keys typed in the frame never reach the site, so the
-  frame handles Esc and Renard's shortcuts itself.
-- **Site adapters** (`content/adapters/`) are the only site-specific code: how to
-  read user and assistant turns, where the message input is (so the bubble
-  avoids covering it), and the page theme. When an adapter can't find messages
-  on a chat page, Renard says so and answers without the chat. `web.js`
-  handles every other site by reading the largest main or article region.
-- **Added websites** use optional host access, requested for one site at a
-  time from the toolbar menu. The background script registers the same
-  content scripts for those sites (`scripting.registerContentScripts`),
-  rebuilds that registration at startup, and injects them into tabs already
-  open. Styles go in through a constructed stylesheet where the browser
-  allows it, so a page whose security policy forbids inline styles still
-  shows Renard correctly.
-- **Background script** owns the API keys. Each question opens a port; the
-  answer streams back over it, and closing the port cancels the request.
-- **Built-in engine** (`engine/`) runs Transformers.js on WebGPU. Firefox's
-  background page hosts it directly; Chrome's service worker can't, so it runs
-  in an offscreen document reached over a port. The page and settings ping the
-  background during answers and downloads, because Firefox suspends an idle
-  background page after about 30 seconds. The engine's code ships in the
-  package (no code is loaded from the network); only model weights are
-  downloaded.
-- **Providers** (`shared/providers.js`) call the APIs with `fetch` and parse
-  the SSE streams: the Anthropic Messages API (`anthropic-version: 2026-10-21`),
-  the OpenAI Responses API, and the Gemini API's `streamGenerateContent`
-  (`alt=sse`). Optional request fields (low effort, refusal fallbacks,
-  reasoning effort, Gemini thinking level) are sent when the model supports
-  them, with one automatic retry without them if a model rejects them.
+The content script draws the fox and the bubble's outline inside a closed
+Shadow DOM to keep the site's CSS and Renard's apart. The background script
+sends it the sprite, fonts, and stylesheet as bytes, and the sprite is drawn on
+a canvas. Since none of them load from an extension URL, the page's Content
+Security Policy can't block them.
+
+The question, answer, and text box are in `bubble/`, an extension page loaded
+in an iframe inside the bubble. The site can't read or script that frame, and
+it doesn't appear in the page's `window.frames`.
+
+The content script and the frame talk over a `MessageChannel`. To accept it,
+the frame needs a one-time key from the background script. Pages can't reach
+the background script, so a site that gets hold of the frame still can't open a
+channel of its own. Since keystrokes in the frame never reach the page, the
+frame handles Esc and the shortcuts itself.
+
+The adapters in `content/adapters/` are the only site-specific code. Each chat
+adapter reads the user and assistant turns, finds the message box so the bubble
+can avoid covering it, and reports the page theme. If an adapter can't find the messages on a chat
+page, Renard says so and answers without the chat. `web.js` handles every other
+site by reading its largest main or article region.
+
+For other websites, Renard asks for optional host access one site at a time
+from the toolbar menu. The background script then registers the same content
+scripts for each site with `scripting.registerContentScripts` and injects them
+into open tabs. Firefox drops these registrations when the extension updates,
+and the background script rebuilds them at startup. Styles are added with a
+constructed stylesheet where the browser supports it, because some pages'
+security policies block inline styles.
+
+The background script makes the API calls. Each question opens a port to it,
+and the answer streams back over that port. Closing the port cancels the
+request.
+
+The built-in engine in `engine/` runs Transformers.js on WebGPU. Firefox's
+background page hosts it directly. Chrome's service worker can't host it, and
+Chrome runs it in an offscreen document reached over a port instead. Firefox
+suspends an idle background page after about 30 seconds, so the page and
+settings ping the background during answers and downloads. The engine's code
+ships in the package. Only the model weights are downloaded.
+
+`shared/providers.js` calls the APIs with `fetch` and parses their SSE streams.
+It uses the Anthropic Messages API (`anthropic-version: 2026-10-21`), the
+OpenAI Responses API, and the Gemini API's `streamGenerateContent` with
+`alt=sse`. Gemini keys go in the `x-goog-api-key` header, never in the URL.
+When a model supports them, requests include optional fields: low effort,
+refusal fallbacks, reasoning effort, and Gemini's thinking level. If the model
+rejects one, the request is retried once without them.
 
 ## Development
 
 ```sh
-npm test         # unit tests: markdown, SSE parsing, providers, prompt, paths, shortcuts
+npm test         # unit tests
 npm run lint     # web-ext lint (Mozilla's add-on linter)
-npm run icons    # regenerate src/icons/ from the fox head art
-npm run build    # store zips: dist/renard-firefox-<version>.zip, dist/renard-chrome-<version>.zip
+npm run icons    # regenerate src/icons/
+npm run build    # store zips in dist/
 ```
 
 Release steps for addons.mozilla.org and the Chrome Web Store are in
-[`docs/publishing.md`](docs/publishing.md); the privacy policy is
-[`PRIVACY.md`](PRIVACY.md).
+[docs/publishing.md](docs/publishing.md).
 
 For a permanent Firefox install, sign the build as an unlisted add-on on
-addons.mozilla.org (free, automated, not public), or use Firefox Developer
-Edition with `xpinstall.signatures.required` set to `false`.
+addons.mozilla.org. Signing is free and automatic, and unlisted add-ons don't
+appear on the site. Firefox Developer Edition also works with
+`xpinstall.signatures.required` set to `false`.
 
-The Firefox add-on ID is `renard-companion@YeziShanYang` and should not change.
+The Firefox add-on ID is `renard-companion@YeziShanYang`. Every version has to
+keep it, so don't change it.
 
 ## License
 
-Renard is free software: its code is licensed under the GNU General Public
-License, version 3 only (`GPL-3.0-only`), in [`LICENSE`](LICENSE). Anyone may
-use, study, change and share it; anyone who distributes Renard or a modified
-version must make that version's source available under the same license.
+Copyright (C) 2026 YeziShanYang. Renard's code is licensed under the GPL,
+version 3 only. See [LICENSE](LICENSE).
 
-Copyright (C) 2026 YeziShanYang.
+These parts have their own terms:
 
-The license covers Renard's own code. These parts keep their own terms: the
-fox art (Elthen's "2D Pixel Art Fox Sprites", licensed separately and not in
-this repository), the Silkscreen font (SIL Open Font License), and
-Transformers.js (Apache 2.0) and ONNX Runtime Web (MIT), which are copied into
-`src/vendor/` on install.
-
-## Credits
-
-- Fox art by Elthen ("2D Pixel Art Fox Sprites").
-- Silkscreen font by The Silkscreen Project Authors, SIL Open Font License
-  (`src/fonts/OFL.txt`).
-- Built-in model engine: Transformers.js by Hugging Face (Apache 2.0) and ONNX
-  Runtime Web by Microsoft (MIT).
-- Gemma models are by Google and are downloaded from Hugging Face under their
-  own terms, listed on each model's page.
+- Fox art: "2D Pixel Art Fox Sprites" by Elthen, licensed separately and not
+  included in this repo.
+- Silkscreen font by The Silkscreen Project Authors, under the SIL Open Font
+  License (`src/fonts/OFL.txt`).
+- Transformers.js by Hugging Face (Apache 2.0) and ONNX Runtime Web by
+  Microsoft (MIT), copied into `src/vendor/` on install.
+- Gemma models are by Google and are downloaded from Hugging Face under the
+  terms on each model's page.
