@@ -14,12 +14,12 @@ import {
   TextStreamer,
   InterruptableStoppingCriteria,
 } from '../vendor/transformers/transformers.min.js';
+import { CACHE_NAME, hubSettings, hasModelFiles } from './hub.js';
 
 const R = globalThis.Renard;
 const ext = globalThis.browser ?? globalThis.chrome;
 const IS_FIREFOX = typeof ext.runtime.getBrowserInfo === 'function';
 
-export const CACHE_NAME = 'transformers-cache';
 const UNLOAD_AFTER_MS = 10 * 60 * 1000;
 
 env.allowLocalModels = false;
@@ -103,22 +103,31 @@ async function load(key, emit, { cacheOnly = false } = {}) {
   const model = R.own(R.LOCAL_MODELS, key);
   if (!model) throw new EngineError('modelUnavailable', `Unknown built-in model: ${key}`);
   await unload();
-  env.allowRemoteModels = !cacheOnly;
+  const gpu = await gpuStatus();
+  if (!gpu.ok) throw new EngineError('noGpu', gpu.reason);
+  const missing = new EngineError('localMissing', `Download ${model.name} in settings first.`);
+  if (cacheOnly) {
+    const { keys } = await cachedEntries(model, { current: true });
+    if (!hasModelFiles(keys.map((req) => req.url), model, gpu.dtype)) throw missing;
+  }
+  const settings = hubSettings(model, { cacheOnly });
+  const before = Object.fromEntries(Object.keys(settings).map((k) => [k, env[k]]));
+  Object.assign(env, settings);
   try {
-    return await loadModel(key, model, emit);
+    // Loading from the cache reports no progress; nobody shows it.
+    return await loadModel(key, model, gpu.dtype, cacheOnly ? null : progressReporter(model, gpu.dtype, emit));
   } catch (err) {
-    if (cacheOnly && !(err instanceof EngineError)) throw new EngineError('localMissing', `Download ${model.name} in settings first.`);
-    throw err;
+    if (err instanceof EngineError || !cacheOnly) throw err;
+    // Only a file missing from the cache means the download is gone. Any
+    // other failure (the GPU, say) is reported as itself.
+    if (err && err.name === 'ModelFileNotFoundError') throw missing;
+    throw new EngineError('unknown', `Couldn't start ${model.name}: ${(err && err.message) || err}`);
   } finally {
-    env.allowRemoteModels = true;
+    Object.assign(env, before);
   }
 }
 
-async function loadModel(key, model, emit) {
-  const gpu = await gpuStatus();
-  if (!gpu.ok) throw new EngineError('noGpu', gpu.reason);
-  const dtype = gpu.dtype;
-  const progress_callback = progressReporter(model, dtype, emit);
+async function loadModel(key, model, dtype, progress_callback) {
   const revision = model.revision;
   let run;
   let dispose;
