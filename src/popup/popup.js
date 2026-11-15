@@ -85,7 +85,9 @@ $('site-on').addEventListener('click', (e) => {
 
   if (!site.generic) {
     // claude.ai or ChatGPT: the same switch as in settings.
-    loadSettings(['sites']).then(({ sites }) => saveSettings({ sites: { ...sites, [site.id]: on } }).then(render));
+    // Sent at once (the popup may close for a permission prompt) and applied
+    // by the background script on top of the stored value.
+    send('renard:setSite', { id: site.id, on }).then(render, render);
     if (on) ext.permissions.request({ origins: site.origins }).then(render, render);
     return;
   }

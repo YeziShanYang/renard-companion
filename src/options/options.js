@@ -32,6 +32,21 @@ async function save(partial) {
   flashSaved();
 }
 
+// Sets one entry of a nested setting (sites, prefs, apiKeys, models,
+// localModel) on top of its stored value, so a change made elsewhere since
+// this page opened (another settings tab, the popup, a bubble) isn't written
+// back over.
+async function saveEntry(key, entry, value) {
+  const fresh = (await loadSettings([key]))[key];
+  await save({ [key]: { ...fresh, [entry]: value } });
+}
+
+async function send(type, payload) {
+  const res = await ext.runtime.sendMessage({ type, ...payload });
+  if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');
+  return res.result;
+}
+
 function setStatus(state, text) {
   const el = $('key-status');
   el.dataset.state = state || '';
@@ -87,6 +102,9 @@ function describeError(err, providerName) {
 // Fetching the model list doubles as the key check.
 async function checkKey() {
   if (checkController) checkController.abort();
+  // Registered before any await, so a second check always cancels this one.
+  const controller = new AbortController();
+  checkController = controller;
   if (settings.provider === 'local') return;
   const provider = R.PROVIDERS[settings.provider];
   const key = settings.apiKeys[provider.id];
@@ -96,14 +114,14 @@ async function checkKey() {
     renderModels();
     return;
   }
-  if (!(await hasOrigins(provider.origins))) {
+  const granted = await hasOrigins(provider.origins);
+  if (controller.signal.aborted) return;
+  if (!granted) {
     // The access box under the key explains it and offers the button.
     setStatus('', '');
     renderModels();
     return;
   }
-  const controller = new AbortController();
-  checkController = controller;
   setStatus('busy', 'Checking…');
   try {
     const list = await listModels(provider.id, key, { signal: controller.signal });
@@ -113,12 +131,13 @@ async function checkKey() {
       setStatus('bad', 'Connected, but no models are available for this key.');
     } else {
       setStatus('ok', '✓ Connected');
-      const current = settings.models[provider.id];
+      const current = (await loadSettings(['models'])).models[provider.id];
+      if (controller.signal.aborted) return;
       const match = current && list.find((m) => m.id === current.id);
       // Keep the chosen model (refreshing its limits); otherwise take the newest.
       const chosen = match || list[0];
       if (!current || JSON.stringify(current) !== JSON.stringify(chosen)) {
-        await save({ models: { ...settings.models, [provider.id]: chosen } });
+        await saveEntry('models', provider.id, chosen);
       }
     }
   } catch (err) {
@@ -144,6 +163,7 @@ function bindAi() {
     });
     radio.addEventListener('change', async () => {
       if (!radio.checked) return;
+      await flushKey();
       await save({ provider: radio.value });
       renderProvider();
       renderAccess();
@@ -153,11 +173,10 @@ function bindAi() {
 
   $('key').addEventListener('input', () => {
     clearTimeout(keyTimer);
-    keyTimer = setTimeout(async () => {
-      const value = $('key').value.trim();
-      await save({ apiKeys: { ...settings.apiKeys, [settings.provider]: value } });
-      checkKey();
-    }, 500);
+    // Remember which provider the key was typed for, in case the provider
+    // changes before the save.
+    pendingKey = { provider: settings.provider, value: $('key').value.trim() };
+    keyTimer = setTimeout(flushKey, 500);
   });
 
   $('key-toggle').addEventListener('click', () => {
@@ -170,8 +189,19 @@ function bindAi() {
 
   $('model').addEventListener('change', () => {
     const chosen = models.find((m) => m.id === $('model').value);
-    if (chosen) save({ models: { ...settings.models, [settings.provider]: chosen } });
+    if (chosen) saveEntry('models', settings.provider, chosen);
   });
+}
+
+let pendingKey = null;
+
+async function flushKey() {
+  clearTimeout(keyTimer);
+  const pending = pendingKey;
+  pendingKey = null;
+  if (!pending || !R.PROVIDERS[pending.provider] || pending.provider === 'local') return;
+  await saveEntry('apiKeys', pending.provider, pending.value);
+  if (settings.provider === pending.provider) checkKey();
 }
 
 // ---- built-in model ------------------------------------------------------------
@@ -216,8 +246,9 @@ function renderLocal() {
       const input = Object.assign(document.createElement('input'), { type: 'radio', name: 'local-model', value: m.id, checked: lm.key === m.id });
       input.addEventListener('change', async () => {
         if (!input.checked) return;
-        await save({ localModel: { ...settings.localModel, key: m.id } });
-        setLocalStatus('', '');
+        await saveEntry('localModel', 'key', m.id);
+        // A download in progress keeps its status line.
+        if (!downloadPort) setLocalStatus('', '');
         renderLocal();
       });
       const dot = Object.assign(document.createElement('span'), { className: 'model-dot' });
@@ -378,7 +409,7 @@ async function renderSites() {
     }
     const { label, input } = switchControl(`site-${site.id}`, enabled, title.id);
     input.addEventListener('change', async () => {
-      await save({ sites: { ...settings.sites, [site.id]: input.checked } });
+      await saveEntry('sites', site.id, input.checked);
       renderSites();
     });
     actions.append(label);
@@ -398,9 +429,9 @@ async function renderSites() {
     const remove = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Remove' });
     remove.setAttribute('aria-label', `Remove ${host}`);
     remove.addEventListener('click', async () => {
-      await save({ otherSites: settings.otherSites.filter((h) => h !== host) });
-      await ext.permissions.remove({ origins: [R.originFor(host)] }).catch(() => {});
-      renderSites();
+      // The background script owns the list, so removals and additions
+      // from the popup can't overwrite each other.
+      await send('renard:removeSite', { host }).catch(() => {});
     });
     const actions = document.createElement('div');
     actions.className = 'row-actions';
@@ -429,12 +460,17 @@ async function renderAccess() {
 
 // ---- display ----------------------------------------------------------------
 
+const PREF_SWITCHES = { readable: 'readableText', sound: 'sound' };
+
+function renderPrefs() {
+  for (const [id, pref] of Object.entries(PREF_SWITCHES)) $(id).checked = Boolean(settings.prefs[pref]);
+}
+
 function bindPrefs() {
-  for (const key of ['readable', 'sound']) {
-    const input = $(key);
-    const pref = key === 'readable' ? 'readableText' : 'sound';
-    input.checked = Boolean(settings.prefs[pref]);
-    input.addEventListener('change', () => save({ prefs: { ...settings.prefs, [pref]: input.checked } }));
+  renderPrefs();
+  for (const [id, pref] of Object.entries(PREF_SWITCHES)) {
+    const input = $(id);
+    input.addEventListener('change', () => saveEntry('prefs', pref, input.checked));
   }
 }
 
@@ -498,12 +534,17 @@ function drawFox() {
 
 async function init() {
   settings = await loadSettings();
-  gpu = await detectGpu();
+  // Controls work right away; the GPU check fills in the built-in section
+  // when it's done, so nothing typed or clicked meanwhile is lost.
   renderProvider();
   bindAi();
   bindLocal();
   bindPrefs();
   drawFox();
+  detectGpu().then((result) => {
+    gpu = result;
+    if (settings.provider === 'local') renderLocal();
+  });
   await Promise.all([renderSites(), renderAccess(), renderShortcuts()]);
   checkKey();
   ext.permissions.onAdded.addListener(() => {
@@ -515,11 +556,32 @@ async function init() {
     renderSites();
     renderAccess();
   });
-  // Sites added or removed from the toolbar popup while this page is open.
-  ext.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'local' || !changes.otherSites) return;
-    settings.otherSites = changes.otherSites.newValue || [];
-    renderSites();
+  // Changes made elsewhere while this page is open: another settings tab,
+  // the toolbar popup, a bubble's Read chat switch, a finished download.
+  ext.storage.onChanged.addListener(async (changes, area) => {
+    if (area !== 'local') return;
+    const keys = Object.keys(changes).filter((k) => Object.prototype.hasOwnProperty.call(R.DEFAULTS, k));
+    if (!keys.length) return;
+    const fresh = await loadSettings(keys);
+    const prev = { ...settings };
+    if (JSON.stringify(keys.map((k) => prev[k])) === JSON.stringify(keys.map((k) => fresh[k]))) return; // this page's own save
+    Object.assign(settings, fresh);
+    const changed = (k) => keys.includes(k) && JSON.stringify(prev[k]) !== JSON.stringify(settings[k]);
+    if (changed('sites') || changed('otherSites')) renderSites();
+    if (changed('prefs')) renderPrefs();
+    if (changed('provider')) {
+      renderProvider();
+      renderAccess();
+      checkKey();
+      return;
+    }
+    // The key field is left alone while someone is typing in it.
+    if (changed('apiKeys') && settings.provider !== 'local' && document.activeElement !== $('key')) {
+      $('key').value = settings.apiKeys[settings.provider] || '';
+      checkKey();
+    }
+    if (changed('models')) renderModels();
+    if (changed('localModel')) renderLocal();
   });
 }
 

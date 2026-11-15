@@ -137,6 +137,21 @@ ext.tabs.onRemoved.addListener(async (tabId) => {
   if (stale.length) await ext.storage.session.remove(stale);
 });
 
+// Read-modify-write of a stored setting, one at a time. Two quick actions
+// (two tabs saving a position, a site added then removed) each start from the
+// other's result instead of overwriting it.
+let writes = Promise.resolve();
+function update(key, change) {
+  const run = writes.then(async () => {
+    const value = (await loadSettings([key]))[key];
+    const next = await change(value);
+    if (next !== undefined) await saveSettings({ [key]: next });
+    return next;
+  });
+  writes = run.catch(() => {});
+  return run;
+}
+
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
@@ -150,17 +165,13 @@ const handlers = {
     const site = siteFor(msg, sender);
     const p = msg.position || {};
     if (p.edge !== 'left' && p.edge !== 'right') throw new Error('Bad position');
-    const { positions } = await loadSettings();
-    positions[site.key || site.id] = { edge: p.edge, y: clamp(Number(p.y) || 0, 0, 1) };
-    await saveSettings({ positions });
+    await update('positions', (positions) => ({ ...positions, [site.key || site.id]: { edge: p.edge, y: clamp(Number(p.y) || 0, 0, 1) } }));
     return { ok: true };
   },
 
   'renard:savePrefs': async (msg) => {
     // Content scripts may only change the "Read chat" toggle.
-    const { prefs } = await loadSettings();
-    if (typeof msg.prefs?.readChat === 'boolean') prefs.readChat = msg.prefs.readChat;
-    await saveSettings({ prefs });
+    if (typeof msg.prefs?.readChat === 'boolean') await update('prefs', (prefs) => ({ ...prefs, readChat: msg.prefs.readChat }));
     return { ok: true };
   },
 
@@ -205,6 +216,13 @@ const handlers = {
     return addSite(msg.host);
   },
 
+  // claude.ai or ChatGPT switched on or off from the popup.
+  'renard:setSite': async (msg, sender) => {
+    if (!fromExtensionPage(sender) || !R.own(R.SITES, msg.id)) throw new Error('Not allowed');
+    await update('sites', (sites) => ({ ...sites, [msg.id]: Boolean(msg.on) }));
+    return { ok: true };
+  },
+
   'renard:removeSite': async (msg, sender) => {
     if (!fromExtensionPage(sender)) throw new Error('Not allowed');
     return removeSite(msg.host);
@@ -220,9 +238,11 @@ const handlers = {
     if (!fromSettings(sender)) throw new Error('Not allowed');
     if (!R.own(R.LOCAL_MODELS, msg.key)) throw new Error('Unknown model');
     await engineRequest({ type: 'remove', key: msg.key });
-    const { localModel } = await loadSettings();
-    delete localModel.ready[msg.key];
-    await saveSettings({ localModel });
+    await update('localModel', (localModel) => {
+      const ready = { ...localModel.ready };
+      delete ready[msg.key];
+      return { ...localModel, ready };
+    });
     return { ok: true };
   },
 };
@@ -351,7 +371,7 @@ async function answer(msg, post, signal) {
     const list = await listModels(provider.id, apiKey, { signal });
     if (!list.length) throw new ProviderError('modelUnavailable', 'No models are available for this key.');
     model = list[0];
-    await saveSettings({ models: { ...s.models, [provider.id]: model } });
+    await update('models', (models) => ({ ...models, [provider.id]: models[provider.id] || model }));
   }
 
   const { chat, page } = context(msg, post);
@@ -372,24 +392,36 @@ async function answer(msg, post, signal) {
 // through a long download.
 ext.runtime.onConnect.addListener((port) => {
   if (port.name !== 'renard:local' || port.sender?.id !== ext.runtime.id || !fromSettings(port.sender)) return;
-  const controller = new AbortController();
-  port.onDisconnect.addListener(() => controller.abort());
+  // A download can't be cancelled midway, so it isn't tied to the page: if
+  // settings closes, it still finishes and is recorded as ready. Messages to
+  // a page that has gone are dropped.
+  let open = true;
+  port.onDisconnect.addListener(() => {
+    open = false;
+  });
+  const post = (m) => {
+    if (!open) return;
+    try {
+      port.postMessage(m);
+    } catch {
+      open = false;
+    }
+  };
   port.onMessage.addListener(async (msg) => {
     const model = msg && msg.type === 'prepare' && R.own(R.LOCAL_MODELS, msg.key);
     if (!model) return;
     try {
-      const result = await engineRequest({ type: 'prepare', key: model.id }, { signal: controller.signal, onEvent: (e) => port.postMessage(e) });
-      const { localModel } = await loadSettings();
-      localModel.ready[model.id] = {
+      const result = await engineRequest({ type: 'prepare', key: model.id }, { onEvent: post });
+      const record = {
         dtype: result.dtype,
         bytes: result.bytes || model.sizes[result.dtype] || 0,
         revision: model.revision,
         at: Date.now(),
       };
-      await saveSettings({ localModel });
-      port.postMessage({ type: 'ready', ...localModel.ready[model.id] });
+      await update('localModel', (localModel) => ({ ...localModel, ready: { ...localModel.ready, [model.id]: record } }));
+      post({ type: 'ready', ...record });
     } catch (err) {
-      if (err.kind !== 'aborted') port.postMessage({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err) });
+      if (err.kind !== 'aborted') post({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err) });
     }
   });
 });
@@ -490,8 +522,7 @@ async function addSiteOnce(host) {
   if (!R.isWebHost(host)) throw new Error('Renard cannot visit that site.');
   const origin = R.originFor(host);
   if (!(await hasOrigins([origin]))) throw new Error(`Renard needs access to ${host} first.`);
-  const { otherSites } = await loadSettings(['otherSites']);
-  if (!otherSites.includes(host)) await saveSettings({ otherSites: [...otherSites, host] });
+  await update('otherSites', (otherSites) => (otherSites.includes(host) ? undefined : [...otherSites, host]));
   await syncSiteScripts();
   let tabs = [];
   try {
@@ -509,8 +540,7 @@ async function addSiteOnce(host) {
 }
 
 async function removeSite(host) {
-  const { otherSites } = await loadSettings(['otherSites']);
-  await saveSettings({ otherSites: otherSites.filter((h) => h !== host) });
+  await update('otherSites', (otherSites) => (otherSites.includes(host) ? otherSites.filter((h) => h !== host) : undefined));
   if (R.isWebHost(host)) await ext.permissions.remove({ origins: [R.originFor(host)] }).catch(() => {});
   return { removed: host };
 }
@@ -529,9 +559,13 @@ function grantedWebHosts(permissions) {
 // Access to an added site was revoked (in the browser's own settings, say):
 // forget the site, so the list only ever holds sites Renard can reach.
 async function pruneOtherSites() {
-  const { otherSites } = await loadSettings(['otherSites']);
-  const granted = await grantedOtherSites();
-  if (granted.length !== otherSites.length) await saveSettings({ otherSites: granted });
+  await update('otherSites', async (otherSites) => {
+    const keep = [];
+    for (const host of otherSites) {
+      if (R.isWebHost(host) && (await hasOrigins([R.originFor(host)]))) keep.push(host);
+    }
+    return keep.length === otherSites.length ? undefined : keep;
+  });
 }
 
 async function updateBadge() {

@@ -35,12 +35,19 @@ class EngineError extends Error {
 }
 
 let current = null; // { key, dtype, run, dispose }
-let loading = null; // { key, promise }
 let unloadTimer = 0;
 let active = null; // stopper of the generation in progress
-// Generations run one at a time, in arrival order: a question from a second
-// tab waits for the first answer instead of cutting it off.
+
+// Everything that loads, uses or frees a model runs one at a time, in
+// arrival order: a second tab's question waits for the first answer, and a
+// download, delete or idle unload waits for an answer in progress (and the
+// other way round), so none of them can cut another off or load twice.
 let turn = Promise.resolve();
+function serial(fn) {
+  const run = turn.then(fn, fn);
+  turn = run.catch(() => {});
+  return run;
+}
 
 export async function gpuStatus() {
   if (!globalThis.navigator || !navigator.gpu) return { ok: false, reason: 'This browser has no WebGPU here.' };
@@ -79,64 +86,72 @@ function progressReporter(model, dtype, emit) {
       loaded += f.loaded;
       total += f.total;
     }
-    emit({ type: 'progress', loaded, total: Math.max(total, expected) });
+    // Whoever asked may have gone (settings closed); the download goes on.
+    try {
+      emit({ type: 'progress', loaded, total: Math.max(total, expected) });
+    } catch {
+      // listener gone
+    }
   };
 }
 
-async function load(key, emit) {
+// Loads a model (always inside serial()). With cacheOnly, files come only
+// from what was downloaded: an answer never starts a download of its own.
+async function load(key, emit, { cacheOnly = false } = {}) {
   clearTimeout(unloadTimer);
   if (current && current.key === key) return current;
-  if (loading && loading.key === key) return loading.promise;
   const model = R.own(R.LOCAL_MODELS, key);
   if (!model) throw new EngineError('modelUnavailable', `Unknown built-in model: ${key}`);
   await unload();
-
-  const promise = (async () => {
-    const gpu = await gpuStatus();
-    if (!gpu.ok) throw new EngineError('noGpu', gpu.reason);
-    const dtype = gpu.dtype;
-    const progress_callback = progressReporter(model, dtype, emit);
-    const revision = model.revision;
-    let run;
-    let dispose;
-
-    if (model.kind === 'gemma4') {
-      // Gemma 4 is multimodal; Renard sends text only.
-      const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
-      const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
-      run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
-        const messages = [
-          { role: 'system', content: [{ type: 'text', text: system }] },
-          { role: 'user', content: [{ type: 'text', text: user }] },
-        ];
-        const prompt = processor.apply_chat_template(messages, { add_generation_prompt: true, enable_thinking: false });
-        const inputs = await processor(prompt);
-        const streamer = new TextStreamer(processor.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
-        await lm.generate({ ...inputs, max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
-      };
-      dispose = () => lm.dispose();
-    } else {
-      const generator = await pipeline('text-generation', model.repo, { revision, dtype, device: 'webgpu', progress_callback });
-      run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
-        const messages = [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ];
-        const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
-        await generator(messages, { max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
-      };
-      dispose = () => generator.dispose();
-    }
-    current = { key, dtype, run, dispose };
-    return current;
-  })();
-
-  loading = { key, promise };
+  env.allowRemoteModels = !cacheOnly;
   try {
-    return await promise;
+    return await loadModel(key, model, emit);
+  } catch (err) {
+    if (cacheOnly && !(err instanceof EngineError)) throw new EngineError('localMissing', `Download ${model.name} in settings first.`);
+    throw err;
   } finally {
-    if (loading && loading.promise === promise) loading = null;
+    env.allowRemoteModels = true;
   }
+}
+
+async function loadModel(key, model, emit) {
+  const gpu = await gpuStatus();
+  if (!gpu.ok) throw new EngineError('noGpu', gpu.reason);
+  const dtype = gpu.dtype;
+  const progress_callback = progressReporter(model, dtype, emit);
+  const revision = model.revision;
+  let run;
+  let dispose;
+
+  if (model.kind === 'gemma4') {
+    // Gemma 4 is multimodal; Renard sends text only.
+    const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
+    const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
+    run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
+      const messages = [
+        { role: 'system', content: [{ type: 'text', text: system }] },
+        { role: 'user', content: [{ type: 'text', text: user }] },
+      ];
+      const prompt = processor.apply_chat_template(messages, { add_generation_prompt: true, enable_thinking: false });
+      const inputs = await processor(prompt);
+      const streamer = new TextStreamer(processor.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
+      await lm.generate({ ...inputs, max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
+    };
+    dispose = () => lm.dispose();
+  } else {
+    const generator = await pipeline('text-generation', model.repo, { revision, dtype, device: 'webgpu', progress_callback });
+    run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
+      const messages = [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ];
+      const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
+      await generator(messages, { max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
+    };
+    dispose = () => generator.dispose();
+  }
+  current = { key, dtype, run, dispose };
+  return current;
 }
 
 export async function unload() {
@@ -155,7 +170,7 @@ export async function unload() {
 
 function scheduleUnload() {
   clearTimeout(unloadTimer);
-  unloadTimer = setTimeout(() => unload(), UNLOAD_AFTER_MS);
+  unloadTimer = setTimeout(() => serial(unload), UNLOAD_AFTER_MS);
 }
 
 // Cached files for a model: their URLs contain the repository path and, for
@@ -192,23 +207,20 @@ export async function handle(type, msg, emit, signal) {
     case 'status':
       return gpuStatus();
 
-    case 'prepare': {
-      const c = await load(msg.key, emit);
-      scheduleUnload();
-      const model = R.LOCAL_MODELS[c.key];
-      await pruneOtherRevisions(model).catch(() => {});
-      return { dtype: c.dtype, bytes: await cachedBytes(model) };
-    }
-
-    case 'generate': {
-      emit({ type: 'loading' });
-      const before = turn;
-      let done;
-      turn = new Promise((resolve) => (done = resolve));
-      try {
-        await before;
-        if (signal && signal.aborted) return { stopped: true };
+    case 'prepare':
+      return serial(async () => {
         const c = await load(msg.key, emit);
+        scheduleUnload();
+        const model = R.LOCAL_MODELS[c.key];
+        await pruneOtherRevisions(model).catch(() => {});
+        return { dtype: c.dtype, bytes: await cachedBytes(model) };
+      });
+
+    case 'generate':
+      emit({ type: 'loading' });
+      return serial(async () => {
+        if (signal && signal.aborted) return { stopped: true };
+        const c = await load(msg.key, emit, { cacheOnly: true });
         if (signal && signal.aborted) return { stopped: true };
         emit({ type: 'thinking' });
         const stopper = new InterruptableStoppingCriteria();
@@ -231,23 +243,23 @@ export async function handle(type, msg, emit, signal) {
           scheduleUnload();
         }
         return { stopped: Boolean(signal && signal.aborted) };
-      } finally {
-        done();
-      }
-    }
+      });
 
-    case 'remove': {
-      const model = R.own(R.LOCAL_MODELS, msg.key);
-      if (!model) throw new EngineError('modelUnavailable', 'Unknown built-in model');
-      if (current && current.key === msg.key) await unload();
-      const { cache, keys } = await cachedEntries(model);
-      for (const req of keys) await cache.delete(req);
-      return { removed: keys.length };
-    }
+    case 'remove':
+      return serial(async () => {
+        const model = R.own(R.LOCAL_MODELS, msg.key);
+        if (!model) throw new EngineError('modelUnavailable', 'Unknown built-in model');
+        if (current && current.key === msg.key) await unload();
+        const { cache, keys } = await cachedEntries(model);
+        for (const req of keys) await cache.delete(req);
+        return { removed: keys.length };
+      });
 
     case 'unload':
-      await unload();
-      return { ok: true };
+      return serial(async () => {
+        await unload();
+        return { ok: true };
+      });
 
     default:
       throw new EngineError('unknown', `Unknown engine request: ${type}`);
