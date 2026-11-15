@@ -39,11 +39,12 @@ Both stores can use the same copy.
 **Name:** Renard: Pixel Fox Companion (the manifest's `name`; `short_name` is
 Renard)
 
-**Summary** (under 250 characters):
+**Summary** (AMO's Summary field, under 250 characters; the Chrome Web Store
+shows the manifest's 132-character description instead):
 
-> An open-source pixel-art fox that helps you read, summarize, and understand
-> the page you're on. It can run a model fully on your computer, without an API
-> key, or use Anthropic, OpenAI, or Gemini.
+> A pixel-art fox that can answer questions about what you read and summarize
+> webpages! It can run a model fully on your computer, without an API key, or
+> use Anthropic, OpenAI, or Gemini with customizable model control.
 
 **Description:**
 
