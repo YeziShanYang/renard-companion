@@ -46,37 +46,25 @@ shows the manifest's 132-character description instead):
 > webpages! It can run a model fully on your computer, without an API key, or
 > use Anthropic, OpenAI, or Gemini with customizable model control.
 
-**Description:**
+**Description** (AMO renders a limited set of Markdown, so the `- ` lines
+become bullets and need the blank line above them; the Chrome Web Store shows
+plain text, where `• ` reads better than `- `):
 
-> Renard is a small pixel-art fox that sits in the margins of claude.ai and
-> ChatGPT, and of any other site you turn it on for. Click it, ask about the
-> page, and the answer appears in a large reading panel. It wanders around and
-> naps while it waits.
->
-> - You don't need an API key. Renard can run Gemma, Google's open model, on
->   your computer's graphics chip. Download it once in settings (about 0.8 GB)
->   and it works offline, and nothing you ask leaves your computer. This needs
->   WebGPU: recent Chrome, or Firefox on Apple Silicon Macs and Windows.
-> - For a larger model, add an Anthropic, OpenAI, or Google Gemini API key.
->   Questions go straight from your browser to that provider; there is no
->   Renard server.
-> - With Read chat on, Renard includes the conversation on the page, so you can
->   ask it to summarize the chat. On other websites it reads the page instead.
->   You can turn this off at any time.
-> - Websites can't see your questions or Renard's answers: the panel is a
->   separate extension frame that the site can't read.
-> - Drag the fox anywhere, resize the panel from any corner, and use
->   Alt+Shift+F to open it or Alt+Shift+H to hide the fox.
-> - The toolbar menu shows or hides Renard everywhere, or turns it on for the
->   site you're on.
-> - Open source under the GNU GPL v3: read the code, report issues, or build it
->   yourself at https://github.com/YeziShanYang/renard-companion.
->
-> The fox's personality is scripted; the AI is only the answer engine.
->
-> Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by
-> Elthen ("2D Pixel Art Fox Sprites"); Silkscreen font under the SIL Open Font
-> License.
+```
+Renard is a small pixel fox that sits in the margins of claude.ai, ChatGPT, and any other site you turn it on for! Click to ask about anything on the page, and the answer appears in a large, resizable reading panel. It wanders around and naps while it waits.
+
+Important details:
+
+- No API key needed! Renard can run Gemma, Google's open model, on your computer's graphics chip. Download it once in settings (about 0.8 GB) and it works offline: nothing you ask leaves your computer. This needs WebGPU: recent Chrome, or Firefox on Apple Silicon Macs and Windows.
+- For a larger model, add an Anthropic, OpenAI, or Google Gemini API key. Questions go straight from your browser to that provider; there is no Renard server.
+- With Read chat on, Renard includes the conversation on the page, so you can ask it to summarize the chat. On other websites it reads the page instead. You can turn this off at any time.
+- Websites can't see your questions or Renard's answers: the panel is a separate extension frame that the site can't read.
+- Drag the fox anywhere, resize the panel from any corner, and use Alt+Shift+F to open it or Alt+Shift+H to hide the fox.
+- The toolbar menu shows or hides Renard everywhere, or turns it on for the site you're on.
+- Open source under the GNU GPL v3: read the code, report issues, or build it yourself at https://github.com/YeziShanYang/renard-companion.
+
+Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("2D Pixel Art Fox Sprites"); Silkscreen font under the SIL Open Font License.
+```
 
 **Category:** Productivity on the Chrome Web Store; the closest AMO category (such as Other).
 
