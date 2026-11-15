@@ -16,6 +16,7 @@
 /* ---- tokens (kept in step with the page's, in content/renard.css) ------ */
 
 :root {
+  color-scheme: light; /* the frame element's scheme matches (renard.css) */
   --u: 3px; /* one art pixel at 3x */
   --paper: #fff8ee;
   --panel: #fffdf9;
@@ -47,6 +48,7 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --paper: #2b2420;
   --panel: #211c19;
   --ink: #c9733e;

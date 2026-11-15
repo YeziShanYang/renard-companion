@@ -296,7 +296,15 @@
   max-height: var(--max-h, 80vh);
   border: 0;
   background: transparent;
-  color-scheme: normal;
+  /* Matches the frame's own color-scheme for each theme. Browsers paint an
+     opaque canvas behind a frame whose scheme differs from its element's,
+     which on pages that declare "color-scheme: light dark" (ChatGPT) showed
+     as a light box behind dark-theme text. */
+  color-scheme: light;
+}
+
+.renard-root[data-theme='dark'] .bubble-frame {
+  color-scheme: dark;
 }
 
 /* Corner drags keep their pointer events even over the frame. */
