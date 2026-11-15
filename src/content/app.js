@@ -40,6 +40,10 @@
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  // The fox is mid-move: reactions, clicks and the bubble wait until it lands,
+  // so nothing can strand it walking in place.
+  const MOVING = ['entering', 'walking', 'dragging', 'leaving'];
+
   // Provider error text shown on the page, minus anything shaped like a key.
   function scrubError(text) {
     return String(text)
@@ -103,7 +107,10 @@
       this.bubble = new R.Bubble({
         // Enter or the Ask/Stop button: stop an answer that is still coming,
         // otherwise ask.
-        onSubmit: (q) => (this.port ? this.stop() : this.ask(q)),
+        onSubmit: (q) => {
+          if (!this.port) this.ask(q);
+          else if (performance.now() - this.askedAt > 400) this.stop();
+        },
         onStop: () => this.stop(),
         onClose: (via) => {
           // Closed from the keyboard: show the focus ring on the fox again.
@@ -309,8 +316,15 @@
       this.blipper.enabled = Boolean(state.prefs.sound);
       this.bubble.setTheme(this.root.dataset.theme, state.prefs.readableText);
       this.bubble.setPrefs({ sound: state.prefs.sound, shortcuts: state.shortcuts });
+      // A Read chat change from this page wins over a refresh that was
+      // already on its way, until storage catches up with it.
+      if (this.pendingReadChat !== undefined) {
+        if (state.prefs.readChat === this.pendingReadChat) this.pendingReadChat = undefined;
+        else state.prefs.readChat = this.pendingReadChat;
+      }
       this.bubble.setReadChat(state.prefs.readChat);
-      this.bubbleSize = { ...state.bubble };
+      // A bubble placed or being resized by hand keeps its size.
+      if (!this.freePlaced && !this.bubble.el.dataset.resizing) this.bubbleSize = { ...state.bubble };
       this.shortcuts = {};
       for (const [cmd, text] of Object.entries(state.shortcuts || {})) {
         const parsed = R.parseShortcut(text);
@@ -319,11 +333,11 @@
       const blocked = this.blocker();
       if (this.bubble.isOpen) {
         this.bubble.setBlocked(blocked && blocked.detail);
-        this.placeBubble();
+        if (!this.freePlaced) this.placeBubble();
       }
       if (!blocked && this.mode === 'blocked') {
         this.wake().then(() => {
-          if (this.mode === 'waking') this.idle();
+          if (this.mode === 'waking') this.rest();
         });
       } else if (blocked && (this.mode === 'idle' || this.mode === 'wandering')) {
         this.haltWander();
@@ -377,8 +391,7 @@
       }
       f.faceIntoPage();
       f.sprite.play('pounce');
-      await f.tweenTo(target, R.ANIMS.pounce.frames * R.ANIMS.pounce.ms);
-      if (this.mode !== 'entering') return;
+      if (!(await f.tweenTo(target, R.ANIMS.pounce.frames * R.ANIMS.pounce.ms)) || this.mode !== 'entering') return;
       const blocked = this.blocker();
       if (blocked) {
         this.sleepBlocked();
@@ -525,14 +538,14 @@
     }
 
     think() {
-      if (this.hidden) return;
+      if (this.hidden || MOVING.includes(this.mode)) return;
       this.setMode('thinking');
       this.fox.sprite.play('look', { loop: true });
     }
 
     // One-shot reaction animation, then `then` (or back to rest).
     react(anim, then) {
-      if (this.hidden) return;
+      if (this.hidden || MOVING.includes(this.mode)) return;
       this.setMode('reacting');
       this.fox.sprite.play(anim, {
         onEnd: () => {
@@ -571,9 +584,11 @@
       clearTimeout(this.timers.look);
       clearTimeout(this.timers.sleep);
       clearTimeout(this.timers.wander);
+      if (MOVING.includes(this.mode)) this.fox.cancelMotion();
       this.setMode('hidden');
       this.fox.say(this.line('hidden'), { onChar: this.blip });
-      await new Promise((resolve) => this.fox.sprite.play('sleep', { onEnd: resolve }));
+      // A later animation can cancel this one's onEnd, so don't wait forever.
+      await Promise.race([new Promise((resolve) => this.fox.sprite.play('sleep', { onEnd: resolve })), wait(1500)]);
       await wait(500);
       if (!this.hidden) return;
       this.fox.hush();
@@ -626,9 +641,13 @@
       }
       if (cmd !== 'toggle-bubble') return;
       if (this.hidden) {
-        this.show().then(() => this.openBubble());
+        this.show().then(() => {
+          if (!this.hidden && !this.bubble.isOpen) this.openBubble();
+        });
       } else if (this.bubble.isOpen) {
         this.closeBubble(true);
+      } else if (MOVING.includes(this.mode)) {
+        return;
       } else if (this.mode === 'sleeping') {
         this.wakeAndOpen();
       } else if (this.mode !== 'dizzy') {
@@ -639,6 +658,7 @@
     // ---- pointer ----------------------------------------------------------
 
     activate() {
+      if (this.hidden || MOVING.includes(this.mode)) return;
       const now = performance.now();
       this.clicks = this.clicks.filter((t) => now - t < DIZZY_WINDOW_MS);
       this.clicks.push(now);
@@ -648,7 +668,7 @@
         return;
       }
       this.haltWander();
-      if (['entering', 'dizzy', 'hidden', 'walking', 'dragging', 'leaving'].includes(this.mode)) return;
+      if (this.mode === 'dizzy') return;
       if (this.bubble.isOpen) {
         this.closeBubble(false);
         return;
@@ -660,7 +680,7 @@
 
     wakeAndOpen() {
       this.wake().then(() => {
-        if (this.mode === 'waking') this.idle();
+        if (this.mode === 'waking') this.rest();
       });
       this.openBubble(this.line('wake'));
     }
@@ -821,6 +841,7 @@
 
     setReadChat(on) {
       this.state.prefs.readChat = on;
+      this.pendingReadChat = on;
       R.send('renard:savePrefs', { prefs: { readChat: on } }).catch(() => {});
     }
 
@@ -840,6 +861,7 @@
       }
       this.cancelAsk();
       clearTimeout(this.timers.sleep);
+      this.askedAt = performance.now();
 
       let chat = null;
       let page = null;

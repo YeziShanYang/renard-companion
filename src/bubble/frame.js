@@ -85,7 +85,8 @@
       this.input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
           e.preventDefault();
-          this.form.requestSubmit();
+          // A held Enter sends once, not thirty asks and stops a second.
+          if (!e.repeat) this.form.requestSubmit();
         }
       });
 

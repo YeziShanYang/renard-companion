@@ -82,7 +82,12 @@
       try {
         do {
           again = false;
-          await syncOnce();
+          try {
+            await syncOnce();
+          } catch (err) {
+            // A pass queued meanwhile still runs; otherwise report it.
+            if (!again) throw err;
+          }
         } while (again && !retired);
       } finally {
         running = null;

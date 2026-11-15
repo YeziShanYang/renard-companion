@@ -71,6 +71,11 @@
       }
       if (this.destroyed) return;
       this.frame.addEventListener('load', () => this.handOver());
+      // A page that unloads without unmounting still lets its key go.
+      this.onPageHide = (e) => {
+        if (!e.persisted) R.send('renard:bubbleKeyDrop', { instance: this.instance }).catch(() => {});
+      };
+      addEventListener('pagehide', this.onPageHide);
       this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);
     }
 
@@ -89,6 +94,7 @@
 
     destroy() {
       this.destroyed = true;
+      if (this.onPageHide) removeEventListener('pagehide', this.onPageHide);
       if (this.port) this.port.close();
       this.port = null;
       this.state.clear();
