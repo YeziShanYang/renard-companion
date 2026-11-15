@@ -58,6 +58,8 @@ for (const [target, adjust] of Object.entries(TARGETS)) {
   const dir = path.join(DIST, target);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.cpSync(SRC, dir, { recursive: true, filter: (p) => !path.basename(p).startsWith('.') });
+  // The GPL travels with every copy of Renard that is handed out.
+  fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(dir, 'LICENSE'));
   const m = adjust(structuredClone(manifest));
   fs.writeFileSync(path.join(dir, 'manifest.json'), `${JSON.stringify(m, null, 2)}\n`);
   if (!zip) {
