@@ -4,7 +4,7 @@
 import '../shared/constants.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
-import { SYSTEM_PROMPT, trimChat, trimPage, buildUserMessage } from '../shared/prompt.js';
+import { SYSTEM_PROMPT, trimChat, trimPage, buildUserMessage, turnFilter } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
 
 const R = globalThis.Renard;
@@ -382,18 +382,24 @@ async function answerLocally(s, msg, post, signal) {
   if (!R.localReady(s.localModel, model)) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
   const { chat, page } = context(msg, post, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars, pageChars: R.LIMITS.localPageChars });
   const question = String(msg.question || '').slice(0, 20000);
+  // Stops generation when the model starts writing a made-up next turn.
+  const done = new AbortController();
+  const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort());
   try {
     await engineRequest(
       { type: 'generate', key: model.id, system: SYSTEM_PROMPT, user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
       {
-        signal,
+        signal: AbortSignal.any([signal, done.signal]),
         onEvent: (e) => {
-          if (e.type === 'delta') post({ type: 'delta', text: e.text });
+          if (e.type === 'delta') filter.push(e.text);
           else if (e.type === 'loading') post({ type: 'loading' });
         },
       },
     );
+    filter.end();
   } catch (err) {
+    // The answer ended where the made-up turn began.
+    if (filter.stopped && !signal.aborted) return;
     // The engine found the download missing from the cache, so it isn't
     // ready any more.
     if (err.kind === 'localMissing') await forgetLocal(model.id);
@@ -537,6 +543,14 @@ async function broadcastRefresh() {
 // extension updates.
 
 const SITE_SCRIPTS = 'renard-other-sites';
+
+// The content script's files, as paths within the extension. Firefox's
+// getManifest() returns them as full moz-extension:// URLs, which
+// registerContentScripts and executeScript refuse.
+function contentScriptFiles() {
+  const base = ext.runtime.getURL('');
+  return ext.runtime.getManifest().content_scripts[0].js.map((f) => (f.startsWith(base) ? f.slice(base.length) : f));
+}
 let siteScripts = Promise.resolve();
 
 async function grantedOtherSites() {
@@ -557,7 +571,7 @@ function syncSiteScripts() {
       if (existing) await ext.scripting.unregisterContentScripts({ ids: [SITE_SCRIPTS] });
       if (!matches.length) return;
       await ext.scripting.registerContentScripts([
-        { id: SITE_SCRIPTS, matches, js: ext.runtime.getManifest().content_scripts[0].js, runAt: 'document_idle' },
+        { id: SITE_SCRIPTS, matches, js: contentScriptFiles(), runAt: 'document_idle' },
       ]);
     })
     .catch((err) => console.warn('[Renard] site scripts:', err));
@@ -594,7 +608,7 @@ async function addSiteOnce(host) {
   } catch {
     // no matching tabs
   }
-  const files = ext.runtime.getManifest().content_scripts[0].js;
+  const files = contentScriptFiles();
   let blocked = 0;
   for (const t of tabs) {
     // A page that already has Renard's script ignores a second copy.
@@ -681,8 +695,8 @@ ext.commands.onCommand.addListener(async (command, tab) => {
 // Firefox doesn't for added sites. Each such tab gets the current copy, and
 // a tab that already has it ignores the second one.
 async function injectOpenTabs() {
-  const script = ext.runtime.getManifest().content_scripts[0];
-  const matches = [...script.matches, ...(await grantedOtherSites()).map(R.originFor)];
+  const matches = [...ext.runtime.getManifest().content_scripts[0].matches, ...(await grantedOtherSites()).map(R.originFor)];
+  const files = contentScriptFiles();
   let tabs = [];
   try {
     tabs = await ext.tabs.query({ url: matches });
@@ -690,7 +704,7 @@ async function injectOpenTabs() {
     return;
   }
   for (const t of tabs) {
-    await ext.scripting.executeScript({ target: { tabId: t.id }, files: script.js }).catch(() => {});
+    await ext.scripting.executeScript({ target: { tabId: t.id }, files }).catch(() => {});
   }
 }
 
