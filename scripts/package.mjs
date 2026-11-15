@@ -7,8 +7,8 @@
 // src/manifest.json is written for Firefox, so src/ loads in Firefox without
 // warnings. Each package adjusts it: Chrome gets a service worker in place of
 // background scripts, the offscreen permission (for the built-in model), and
-// drops Firefox-only keys. The licensed sprite
-// sheet is required, since a published build should show the real fox.
+// drops Firefox-only keys. The licensed sprite sheet is required, since a
+// published build should show the real fox.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

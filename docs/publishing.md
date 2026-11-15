@@ -1,18 +1,16 @@
 # Releasing Renard
 
-Renard ships to two stores from one codebase: addons.mozilla.org (AMO) for
-Firefox and the Chrome Web Store (CWS). `npm run build` produces one zip for
-each.
+Renard is published on addons.mozilla.org (AMO) for Firefox and on the Chrome
+Web Store from the same code. `npm run build` makes a zip for each.
 
 ## Before each release
 
-1. **Sprite sheet.** The store packages include Elthen's sprite sheet, which
-   its license allows inside a project but not on its own, so it stays out of
-   the repository. Put it at `src/assets/fox-sprite-sheet.png` before
-   building. The toolbar icon is original art.
-2. **Version.** Bump `version` in `src/manifest.json` and `package.json`.
-   Each store rejects a version it has already seen.
-3. **Build.**
+1. Put Elthen's sprite sheet at `src/assets/fox-sprite-sheet.png`. The store
+   packages include it (its license allows that inside a project, just not on
+   its own), but it stays out of the repo. The toolbar icon is original art.
+2. Bump `version` in both `src/manifest.json` and `package.json`. Neither store
+   accepts a version it has already seen.
+3. Build:
 
    ```sh
    npm test
@@ -21,20 +19,20 @@ each.
 
    This writes `dist/renard-firefox-<version>.zip` and
    `dist/renard-chrome-<version>.zip`, and lints the Firefox package.
-4. **Listing assets.**
+4. Get the listing assets ready:
    - Icon: `src/icons/icon-128.png`.
-   - Screenshots: at least one 1280×800 (Chrome also accepts 640×400) showing
+   - Screenshots: at least one at 1280×800 (Chrome also takes 640×400) showing
      the fox and an answer.
    - Chrome small promo tile: 440×280.
-   - Describe Renard as working with claude.ai and ChatGPT without using those
-     products' logos, and state that Renard is not affiliated with Anthropic,
-     OpenAI, or Google.
-5. **Privacy policy.** Both stores ask for a public URL; use
+   - Don't use the claude.ai or ChatGPT logos when describing what Renard
+     works with, and say that Renard isn't affiliated with Anthropic, OpenAI,
+     or Google.
+5. Both stores want a public privacy policy URL. Use
    [`PRIVACY.md`](../PRIVACY.md) on GitHub.
 
 ## Listing text
 
-Both stores can use the same copy.
+The same text works for both stores.
 
 **Name:** Renard: Pixel Fox Companion (the manifest's `name`; `short_name` is
 Renard)
@@ -79,17 +77,18 @@ Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("
 2. Distribution: **On this site** for a public, reviewed listing, or **On your
    own** for a signed package that is not listed.
 3. Upload `dist/renard-firefox-<version>.zip`.
-4. **Source code:** no source submission is needed. Renard's own code ships as
-   written, without minifying, bundling, or transpiling. The only minified
+4. Source code: AMO doesn't need a source submission. Renard's own code ships
+   as written, with no minifying, bundling, or transpiling. The only minified
    files are third-party libraries copied unmodified from npm
-   (`src/vendor/transformers/`: Transformers.js and ONNX Runtime Web, versions
-   in its `NOTICE.md`). The linter's `eval` warnings come from those files;
-   Renard's content security policy would block those code paths. The
+   (`src/vendor/transformers/`: Transformers.js and ONNX Runtime Web, with
+   versions in its `NOTICE.md`). The linter's `eval` warnings come from those
+   files, and Renard's content security policy blocks those code paths. The
    built-in model's files are pinned to a Hugging Face commit (`revision` in
    `src/shared/constants.js`).
-   Platforms: Firefox only. Renard isn't built for Firefox for Android (the
-   fox lives in desktop page margins, the shortcuts need a keyboard, and the
-   built-in model needs WebGPU).
+
+   Platforms: Firefox only. Renard isn't built for Firefox for Android. The fox
+   walks in the margins of desktop pages, the shortcuts need a keyboard, and
+   the built-in model needs WebGPU.
 
    **Notes to reviewer** (paste, updating versions and hashes if the
    libraries change):

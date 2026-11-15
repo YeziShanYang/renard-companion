@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "GPL-3.0-only",
-  "description": "A pixel-art fox companion for claude.ai and ChatGPT that answers questions with your own Anthropic, OpenAI, or Gemini API key.",
+  "description": "Pixel-art fox companion for reading and summarizing web pages, with a built-in model or your own API key.",
   "type": "module",
   "scripts": {
     "vendor": "node scripts/vendor.mjs",
