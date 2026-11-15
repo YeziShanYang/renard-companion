@@ -57,16 +57,16 @@ async function render() {
   }
 
   let status;
-  if (!spawned) status = 'Resting at home.';
-  else if (on) status = 'Out on this page.';
-  else if (site) status = 'Not on this site.';
-  else if (tab && tab.insecure) status = 'Only visits secure (https) pages.';
-  else if (tab && !tab.host) status = "Can't visit this kind of page.";
-  else status = 'Out and about.';
+  if (!spawned) status = 'Napping at home. Flip the switch to bring me out!';
+  else if (on) status = 'Out exploring this page!';
+  else if (site) status = 'Not on this site yet. Want me here?';
+  else if (tab && tab.insecure) status = 'I only visit secure (https) pages.';
+  else if (tab && !tab.host) status = "I can't visit this kind of page.";
+  else status = 'Out and about!';
   $('status').textContent = status;
 
   const access = await hasOrigins(requiredOrigins(s));
-  note(access ? '' : 'Renard needs access to some sites. Open settings to allow it.');
+  note(access ? '' : 'I need access to a few sites. Open settings to let me in!');
 }
 
 $('spawned').addEventListener('change', async (e) => {

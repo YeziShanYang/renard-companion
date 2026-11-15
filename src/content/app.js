@@ -336,7 +336,7 @@
       if (!s.hasKey && s.provider === 'local') {
         return { line: 'localMissing', detail: `Download ${s.modelName || 'the built-in model'} in settings to get started.` };
       }
-      if (!s.hasKey) return { line: 'noKey', detail: `Connect a model in settings to get started, with a key for ${s.providerName} or the built-in model.` };
+      if (!s.hasKey) return { line: 'noKey', detail: 'To get started, open settings: add an API key, or pick Built-in and skip the key.' };
       if (!s.apiPermission) return { line: 'noPermission', detail: `Allow Renard to reach ${s.providerName} in settings.` };
       return null;
     }
@@ -937,7 +937,7 @@
 
     answered(text) {
       this.bubble.setAnswer(text, { streaming: false });
-      if (!text) this.bubble.setNote('The answer came back empty.');
+      if (!text) this.bubble.setNote('Hmm, the answer came back empty. Try asking again?');
       const line = this.line('answered');
       this.bubble.setLine(line, { onChar: this.blip });
       this.bubble.announce('Answer ready');
