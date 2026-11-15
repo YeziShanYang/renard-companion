@@ -26,8 +26,9 @@ switch reads **Read page** and sends the page's text instead.
 The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
 animations. The AI is only the answer engine and has no persona.
 
-Renard runs in Firefox (its primary browser) and Chrome. It is not on the
-add-on stores yet; load it from source as described below.
+Renard is open source (GPL-3.0) and runs in Firefox (its primary browser) and
+Chrome. It is not on the add-on stores yet; load it from source as described
+below.
 
 ## Setup
 
@@ -255,6 +256,21 @@ addons.mozilla.org (free, automated, not public), or use Firefox Developer
 Edition with `xpinstall.signatures.required` set to `false`.
 
 The Firefox add-on ID is `renard-companion@YeziShanYang` and should not change.
+
+## License
+
+Renard is free software: its code is licensed under the GNU General Public
+License, version 3 only (`GPL-3.0-only`), in [`LICENSE`](LICENSE). Anyone may
+use, study, change and share it; anyone who distributes Renard or a modified
+version must make that version's source available under the same license.
+
+Copyright (C) 2026 YeziShanYang.
+
+The license covers Renard's own code. These parts keep their own terms: the
+fox art (Elthen's "2D Pixel Art Fox Sprites", licensed separately and not in
+this repository), the Silkscreen font (SIL Open Font License), and
+Transformers.js (Apache 2.0) and ONNX Runtime Web (MIT), which are copied into
+`src/vendor/` on install.
 
 ## Credits
 

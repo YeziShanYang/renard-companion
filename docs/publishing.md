@@ -40,9 +40,10 @@ Both stores can use the same copy.
 
 **Summary** (under 250 characters):
 
-> Meet Renard, a pixel-art fox companion that helps you read, summarize, and
-> make sense of the page you're on! No API key needed: it runs Gemma right on
-> your computer, or connects to Anthropic, OpenAI, or Gemini if you'd like.
+> Renard is an open-source pixel-art fox companion that helps you read,
+> summarize, and make sense of the page you're on. No API key needed: it runs
+> Gemma right on your computer, or connects to Anthropic, OpenAI, or Gemini if
+> you'd like.
 
 **Description:**
 
@@ -67,6 +68,9 @@ Both stores can use the same copy.
 >   Alt+Shift+F to open it or Alt+Shift+H to hide the fox.
 > - The toolbar menu shows or hides Renard everywhere, or turns it on for the
 >   site you're on.
+>
+> - Open source under the GNU GPL v3: read the code, report issues, or build it
+>   yourself at https://github.com/YeziShanYang/renard-companion.
 >
 > The fox's personality is scripted; the AI is only the answer engine.
 >
@@ -96,8 +100,8 @@ Both stores can use the same copy.
    built-in model's files are pinned to a Hugging Face commit (`revision` in
    `src/shared/constants.js`).
 5. **Listing details:** name, summary (250 characters or fewer), description,
-   categories, support site (the repository's issues page), license, and the
-   privacy policy URL.
+   categories, support site (the repository's issues page), license (GNU
+   General Public License v3.0), and the privacy policy URL.
 6. **Data collection:** AMO shows the manifest's declaration
    (`websiteContent`, `personalCommunications`). The listing should describe
    the same thing: the page's conversation (or, on a website the user added,
