@@ -1,100 +1,39 @@
-// The speech bubble: canned line, the question and streamed answer, the
-// input with its "Read chat" switch, plus expand and resize controls.
-// It owns its DOM and controls; the app decides where it goes.
+// The speech bubble on the page: its outline, tail, and resize corners, with
+// an extension frame (bubble/bubble.html) inside that holds everything the
+// user reads and types. The site can see where the bubble is, but not into
+// the frame. This class keeps the interface the app uses and relays it to
+// the frame; the app decides where the bubble goes.
+//
+// The channel to the frame is a MessageChannel handed over with a one-time
+// key. The key goes from this script to the frame through the background
+// script (extension messaging, which sites can't use), so a site that gets
+// hold of the frame can't open a channel of its own.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
   const { h } = R;
 
-  function iconButton(name, label, onclick, extra = {}) {
-    return h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, onclick, ...extra }, [R.icon(name)]);
+  function randomHex(bytes) {
+    return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   R.Bubble = class {
     constructor(handlers) {
       this.handlers = handlers;
       this.isOpen = false;
-      this.cancelType = null;
       this.markdown = '';
-      this.renderQueued = false;
-      this.streaming = false;
-      this.copyTimer = 0;
+      this.answering = false; // a question has been asked and not cleared
+      this.readChat = { checked: false };
+      this.port = null;
+      this.queue = [];
+      this.layout = null;
+      this.instance = randomHex(12);
+      this.key = randomHex(24);
       this.build();
+      this.connect();
     }
 
     build() {
-      const H = this.handlers;
-
-      this.lineText = h('span', { class: 'line-text', 'aria-hidden': 'true' });
-      this.lineLive = h('span', { class: 'sr-only' });
-      this.line = h('p', { class: 'line', id: 'renard-line' }, [this.lineText, this.lineLive]);
-
-      this.expandBtn = iconButton('expand', 'Expand', () => H.onExpand(), { 'aria-pressed': 'false' });
-      this.expandBtn.append(R.icon('collapse'));
-      const closeBtn = iconButton('close', 'Close', () => H.onClose());
-
-      // One row of controls: answer actions (shown once there is an answer),
-      // then the bubble's own expand and close.
-      this.copyBtn = iconButton('copy', 'Copy answer', () => this.copy(), { 'data-copied': 'false' });
-      this.copyBtn.classList.add('copy-btn');
-      this.copyBtn.append(R.icon('check'));
-      this.clearBtn = iconButton('clear', 'Clear question and answer', () => H.onClear());
-      this.answerActions = h('div', { class: 'head-group', hidden: true }, [this.copyBtn, this.clearBtn]);
-      const head = h('header', { class: 'head' }, [
-        this.line,
-        h('div', { class: 'head-actions' }, [this.answerActions, h('div', { class: 'head-group' }, [this.expandBtn, closeBtn])]),
-      ]);
-
-      this.noticeText = h('p', { class: 'notice-text' });
-      this.settingsBtn = h('button', { class: 'btn', type: 'button', onclick: () => H.onOpenSettings() }, 'Open settings');
-      this.notice = h('div', { class: 'notice', hidden: true }, [this.noticeText, this.settingsBtn]);
-
-      this.askedText = h('span', { class: 'asked-text' });
-      this.note = h('p', { class: 'note', hidden: true });
-      this.answer = h('div', { class: 'answer', tabindex: '0', role: 'region', 'aria-label': 'Answer' });
-      this.qa = h('div', { class: 'qa', hidden: true }, [
-        h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]),
-        this.note,
-        h('div', { class: 'answer-box' }, [this.answer]),
-      ]);
-      this.status = h('p', { class: 'sr-only', role: 'status' });
-
-      this.input = h('textarea', {
-        class: 'input',
-        rows: '1',
-        placeholder: 'Ask Renard…',
-        'aria-label': 'Your question',
-        maxlength: '20000',
-        spellcheck: 'true',
-      });
-      this.input.addEventListener('input', () => this.autosize());
-      this.input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-          e.preventDefault();
-          this.form.requestSubmit();
-        }
-      });
-
-      this.readChat = h('input', { type: 'checkbox', role: 'switch', class: 'switch-input' });
-      this.readChat.addEventListener('change', () => H.onReadChatChange(this.readChat.checked));
-      this.readLabelText = h('span', { class: 'switch-label' }, 'Read chat');
-      this.readLabel = h('label', { class: 'switch', title: 'Include the chat on this page with your question' }, [
-        this.readChat,
-        h('span', { class: 'switch-track', 'aria-hidden': 'true' }, [h('span', { class: 'switch-thumb' })]),
-        R.icon('chat'),
-        this.readLabelText,
-      ]);
-
-      this.sendLabel = h('span', {}, 'Ask');
-      this.sendBtn = h('button', { type: 'submit', class: 'btn btn-primary send-btn' }, [R.icon('stop'), this.sendLabel]);
-      this.form = h('form', { class: 'ask' }, [
-        h('div', { class: 'input-box' }, [this.input, h('span', { class: 'block-caret', 'aria-hidden': 'true' })]),
-        h('div', { class: 'ask-row' }, [this.readLabel, this.sendBtn]),
-      ]);
-      this.form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        if (this.streaming) H.onStop();
-        else H.onSubmit(this.input.value);
-      });
+      this.frame = h('iframe', { class: 'bubble-frame', title: 'Renard', allow: 'clipboard-write' });
 
       // A resize handle on each corner; dragging one moves that corner while
       // the opposite corner stays put.
@@ -106,16 +45,95 @@
 
       this.el = h(
         'section',
-        {
-          class: 'bubble px-box',
-          role: 'dialog',
-          'aria-labelledby': 'renard-line',
-          'data-open': 'false',
-          'data-side': 'left',
-          'data-expanded': 'false',
-        },
-        [R.tail(5), head, this.notice, this.qa, this.status, this.form, ...this.corners],
+        { class: 'bubble px-box', 'data-open': 'false', 'data-side': 'left', 'data-expanded': 'false' },
+        [R.tail(5), this.frame, ...this.corners],
       );
+    }
+
+    // Registers the key, then loads the frame; once it has loaded, hands it
+    // one end of a MessageChannel along with the key.
+    async connect() {
+      try {
+        await R.send('renard:bubbleKey', { instance: this.instance, key: this.key });
+      } catch {
+        return; // extension reloaded; this copy is on its way out
+      }
+      const origin = new URL(R.ext.runtime.getURL('')).origin;
+      this.frame.addEventListener(
+        'load',
+        () => {
+          const channel = new MessageChannel();
+          channel.port1.onmessage = (e) => e.data && typeof e.data.type === 'string' && this.fromFrame(e.data);
+          this.frame.contentWindow.postMessage({ renard: 'bubble', key: this.key }, origin, [channel.port2]);
+          this.port = channel.port1;
+          const queued = this.queue;
+          this.queue = [];
+          for (const m of queued) this.port.postMessage(m);
+        },
+        { once: true },
+      );
+      this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);
+    }
+
+    destroy() {
+      if (this.port) this.port.close();
+      this.port = null;
+      this.queue = [];
+    }
+
+    // Messages wait until the frame has connected.
+    send(msg) {
+      if (this.port) {
+        try {
+          this.port.postMessage(msg);
+          return;
+        } catch {
+          this.port = null;
+        }
+      }
+      this.queue.push(msg);
+    }
+
+    fromFrame(m) {
+      const H = this.handlers;
+      switch (m.type) {
+        case 'height': {
+          const px = Math.max(0, Math.min(10000, Math.round(Number(m.px) || 0)));
+          this.el.style.setProperty('--frame-h', `${px}px`);
+          break;
+        }
+        case 'submit':
+          this.readChat.checked = Boolean(m.readChat);
+          H.onSubmit(String(m.question || '').slice(0, 20000));
+          break;
+        case 'stop':
+          H.onStop();
+          break;
+        case 'close':
+          H.onClose();
+          break;
+        case 'expand':
+          H.onExpand();
+          break;
+        case 'clear':
+          H.onClear();
+          break;
+        case 'settings':
+          H.onOpenSettings();
+          break;
+        case 'readChat':
+          this.readChat.checked = Boolean(m.on);
+          H.onReadChatChange(this.readChat.checked);
+          break;
+        case 'command':
+          if (m.cmd === 'toggle-bubble' || m.cmd === 'toggle-visibility') H.onCommand(m.cmd);
+          break;
+        case 'blip':
+          H.onBlip();
+          break;
+        default:
+          break;
+      }
     }
 
     // ---- open / close / placement ---------------------------------------
@@ -142,9 +160,6 @@
       this.el.dataset.side = side;
       this.el.dataset.anchor = anchor;
       this.el.dataset.expanded = expanded ? 'true' : 'false';
-      this.expandBtn.setAttribute('aria-pressed', expanded ? 'true' : 'false');
-      this.expandBtn.setAttribute('aria-label', expanded ? 'Shrink' : 'Expand');
-      this.expandBtn.title = expanded ? 'Shrink' : 'Expand';
       s.left = `${Math.round(left)}px`;
       s.top = anchor === 'top' ? `${Math.round(offset)}px` : 'auto';
       s.bottom = anchor === 'top' ? 'auto' : `${Math.round(offset)}px`;
@@ -154,15 +169,35 @@
       s.setProperty('--expanded-h', `${Math.round(expandedHeight)}px`);
       s.setProperty('--h', height ? `${Math.round(height)}px` : 'auto');
       this.el.dataset.sized = height ? 'true' : 'false';
+      const layout = {
+        type: 'layout',
+        side,
+        fill: Boolean(height || expanded),
+        expanded: Boolean(expanded),
+        maxHeight: Math.round(maxHeight),
+        pageHeight: innerHeight,
+      };
+      const key = JSON.stringify(layout);
+      if (key !== this.layout) {
+        this.layout = key;
+        this.send(layout);
+      }
     }
 
     hasAnswer() {
-      return !this.qa.hidden;
+      return this.answering;
     }
 
-    focusPrimary() {
-      if (!this.notice.hidden && this.form.hidden) this.settingsBtn.focus();
-      else this.input.focus();
+    // Keyboard focus goes into the frame first; the frame then focuses its
+    // input (or the settings button when asking is blocked).
+    focusPrimary({ select = false } = {}) {
+      this.frame.focus();
+      this.send({ type: 'focus', select });
+    }
+
+    focusInput() {
+      this.frame.focus();
+      this.send({ type: 'focusInput' });
     }
 
     bindCorner(el, corner) {
@@ -188,156 +223,78 @@
       el.addEventListener('pointercancel', end);
     }
 
-    // ---- content --------------------------------------------------------
+    // ---- content (relayed to the frame) ------------------------------------
 
-    setLine(text, { onChar } = {}) {
-      if (this.cancelType) this.cancelType();
-      this.lineLive.textContent = text;
-      this.cancelType = R.typewrite(this.lineText, text, { onChar });
+    setTheme(theme, readable) {
+      this.send({ type: 'theme', theme, readable: Boolean(readable) });
+    }
+
+    setPrefs({ sound, shortcuts }) {
+      this.send({ type: 'prefs', sound: Boolean(sound), shortcuts: shortcuts || {} });
+    }
+
+    setLine(text) {
+      this.send({ type: 'line', text });
     }
 
     // Blocked: no way to ask yet (no key, no API access). Shows the notice
     // with the settings button and hides the input.
     setBlocked(detail) {
-      this.form.hidden = Boolean(detail);
-      this.setNotice(detail ? { text: detail, settings: true } : null);
+      this.send({ type: 'blocked', detail: detail || '' });
     }
 
     setNotice(notice) {
-      if (!notice || (!notice.text && !notice.settings)) {
-        this.notice.hidden = true;
-        return;
-      }
-      this.notice.hidden = false;
-      this.noticeText.textContent = notice.text || '';
-      this.noticeText.hidden = !notice.text;
-      this.settingsBtn.hidden = !notice.settings;
+      this.send({ type: 'notice', notice: notice || null });
     }
 
     setReadChat(on) {
       this.readChat.checked = Boolean(on);
+      this.send({ type: 'readChat', on: this.readChat.checked });
     }
 
     // "Read chat" on chat sites, "Read page" elsewhere.
     setReadLabel(text, title) {
-      this.readLabelText.textContent = text;
-      this.readLabel.title = title;
+      this.send({ type: 'readLabel', text, title });
+    }
+
+    // Puts text in the input unless the user has typed something.
+    prefillDraft(text) {
+      this.send({ type: 'prefill', text });
     }
 
     setDraft(text) {
-      this.input.value = text;
-      this.autosize();
-    }
-
-    autosize() {
-      const el = this.input;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      this.send({ type: 'draft', text });
     }
 
     startAnswer(question) {
-      this.qa.hidden = false;
-      this.answerActions.hidden = false;
-      this.askedText.textContent = question;
-      this.setNote('');
-      this.setNotice(null);
-      this.setAnswer('', { streaming: true });
-      this.copyBtn.disabled = true;
-      this.status.textContent = '';
+      this.answering = true;
+      this.markdown = '';
+      this.send({ type: 'start', question });
     }
 
-    // Back to an empty bubble: no question, answer, note, or draft.
     reset() {
-      this.setAnswer('', { streaming: false });
-      this.qa.hidden = true;
-      this.answerActions.hidden = true;
-      this.askedText.textContent = '';
-      this.setNote('');
-      this.setNotice(null);
-      this.setDraft('');
-      this.status.textContent = 'Cleared';
+      this.answering = false;
+      this.markdown = '';
+      this.send({ type: 'reset' });
     }
 
     setNote(text) {
-      this.note.hidden = !text;
-      this.note.textContent = text;
+      this.send({ type: 'note', text });
     }
 
-    setStreaming(on) {
-      this.streaming = on;
-      this.el.dataset.streaming = on ? 'true' : 'false';
-      this.sendLabel.textContent = on ? 'Stop' : 'Ask';
-      this.answer.setAttribute('aria-busy', on ? 'true' : 'false');
-    }
-
+    // Streaming text goes over as deltas, so a long answer isn't resent on
+    // every update.
     setAnswer(markdown, { streaming = false } = {}) {
-      this.markdown = markdown;
-      this.setStreaming(streaming);
-      this.copyBtn.disabled = streaming || !markdown;
-      if (!markdown) {
-        this.renderCost = 0;
-        this.plainStream = false;
-      }
-      if (streaming) {
-        // Coalesce rapid deltas into one render per frame, or ten a second
-        // once rendering gets slow (the whole answer is re-parsed each time).
-        if (!this.renderQueued) {
-          this.renderQueued = true;
-          const delay = this.renderCost > 8 ? 100 : 0;
-          setTimeout(() => {
-            requestAnimationFrame(() => {
-              this.renderQueued = false;
-              this.renderAnswer();
-            });
-          }, delay);
-        }
+      if (streaming && this.markdown && markdown.startsWith(this.markdown) && markdown.length > this.markdown.length) {
+        this.send({ type: 'delta', text: markdown.slice(this.markdown.length) });
       } else {
-        this.renderAnswer();
+        this.send({ type: 'answer', markdown, streaming });
       }
-    }
-
-    renderAnswer() {
-      const box = this.answer;
-      const pinned = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
-      const started = performance.now();
-      // An answer too slow to re-format on every update streams as plain
-      // text and is formatted once at the end.
-      const frag = this.streaming && this.plainStream ? R.markdown.plainBlock(this.markdown) : R.markdown.render(this.markdown);
-      this.renderCost = performance.now() - started;
-      if (this.streaming && this.renderCost > 50) this.plainStream = true;
-      if (this.streaming) {
-        // Put the cursor right after the last character: descend while the
-        // last node is an element (list item, paragraph, code), but stop at
-        // tables and at elements followed by trailing text.
-        let target = frag.lastElementChild;
-        while (target && target.lastElementChild && target.lastElementChild === target.lastChild && !/^(TABLE|DIV)$/.test(target.tagName)) {
-          target = target.lastElementChild;
-        }
-        (target || frag).append(h('span', { class: 'stream-cursor', 'aria-hidden': 'true' }));
-      }
-      box.replaceChildren(frag);
-      if (this.streaming && pinned) box.scrollTop = box.scrollHeight;
+      this.markdown = markdown;
     }
 
     announce(text) {
-      this.status.textContent = text;
-    }
-
-    async copy() {
-      if (!this.markdown) return;
-      try {
-        await navigator.clipboard.writeText(this.markdown);
-      } catch {
-        return;
-      }
-      clearTimeout(this.copyTimer);
-      this.copyBtn.dataset.copied = 'true';
-      this.copyBtn.setAttribute('aria-label', 'Copied');
-      this.announce('Answer copied');
-      this.copyTimer = setTimeout(() => {
-        this.copyBtn.dataset.copied = 'false';
-        this.copyBtn.setAttribute('aria-label', 'Copy answer');
-      }, 1600);
+      this.send({ type: 'announce', text });
     }
   };
 })();

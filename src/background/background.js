@@ -108,6 +108,37 @@ async function shortcutStrings() {
   return out;
 }
 
+const HEX = /^[0-9a-f]{16,64}$/;
+
+// Bubble channel keys, kept in session storage (which content scripts can't
+// read) so they survive the background script being suspended in between.
+const bubbleKeys = {
+  memory: new Map(),
+  async set(id, key) {
+    if (ext.storage.session) await ext.storage.session.set({ [`bubble:${id}`]: key });
+    else this.memory.set(id, key);
+  },
+  async take(id) {
+    if (!ext.storage.session) {
+      const key = this.memory.get(id);
+      this.memory.delete(id);
+      return key;
+    }
+    const name = `bubble:${id}`;
+    const key = (await ext.storage.session.get(name))[name];
+    await ext.storage.session.remove(name);
+    return key;
+  },
+};
+
+// Keys for a closed tab are no longer needed.
+ext.tabs.onRemoved.addListener(async (tabId) => {
+  if (!ext.storage.session) return;
+  const all = await ext.storage.session.get(null);
+  const stale = Object.keys(all).filter((k) => k.startsWith(`bubble:${tabId}:`));
+  if (stale.length) await ext.storage.session.remove(stale);
+});
+
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
@@ -144,6 +175,23 @@ const handlers = {
     };
     await saveSettings({ bubble });
     return { ok: true };
+  },
+
+  // The bubble's one-time channel key: the content script registers it, and
+  // the frame (Renard's own page, in the same tab) collects it once.
+  'renard:bubbleKey': async (msg, sender) => {
+    if (fromExtensionPage(sender) || !sender.tab || !HEX.test(msg.instance) || !HEX.test(msg.key)) throw new Error('Not allowed');
+    await bubbleKeys.set(`${sender.tab.id}:${msg.instance}`, msg.key);
+    return { ok: true };
+  },
+
+  'renard:frameKey': async (msg, sender) => {
+    if (!(sender.url || '').startsWith(ext.runtime.getURL('bubble/bubble.html')) || !sender.tab || !HEX.test(msg.instance)) {
+      throw new Error('Not allowed');
+    }
+    const key = await bubbleKeys.take(`${sender.tab.id}:${msg.instance}`);
+    if (!key) throw new Error('No key for this bubble');
+    return { key };
   },
 
   // From the toolbar popup or settings only, never from a page.

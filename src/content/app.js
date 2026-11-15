@@ -110,6 +110,9 @@
         onReadChatChange: (on) => this.setReadChat(on),
         onOpenSettings: () => R.send('renard:openOptions').catch(() => {}),
         onClear: () => this.clearAnswer(),
+        // Keys typed in the bubble stay in its frame, which reports shortcuts.
+        onCommand: (cmd) => this.command(cmd, 'page'),
+        onBlip: () => this.blip(),
       });
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
@@ -123,26 +126,36 @@
       this.enter();
     }
 
+    // Also runs in an orphaned copy (extension reloaded), whose extension
+    // APIs throw, so the fox is removed whatever else fails.
     unmount() {
       if (this.unmounted) return;
       this.unmounted = true;
-      this.cancelAsk();
-      for (const t of Object.values(this.timers)) {
-        clearTimeout(t);
-        clearInterval(t);
+      try {
+        for (const t of Object.values(this.timers)) {
+          clearTimeout(t);
+          clearInterval(t);
+        }
+        for (const o of this.observers) o.disconnect();
+        window.removeEventListener('resize', this.onResize);
+        window.removeEventListener('keydown', this.onKeyDown, true);
+        this.colorScheme.removeEventListener('change', this.onSchemeChange);
+        this.fox.cancelMotion();
+        this.fox.sprite.stop();
+        try {
+          this.cancelAsk();
+        } catch {
+          this.port = null;
+        }
+        this.bubble.destroy();
+      } finally {
+        this.host.remove();
       }
-      for (const o of this.observers) o.disconnect();
-      window.removeEventListener('resize', this.onResize);
-      window.removeEventListener('keydown', this.onKeyDown, true);
-      this.colorScheme.removeEventListener('change', this.onSchemeChange);
-      this.fox.cancelMotion();
-      this.fox.sprite.stop();
-      this.host.remove();
     }
 
     // A constructed stylesheet is immune to the page's Content Security
-    // Policy (some sites forbid inline styles). Firefox content scripts can't
-    // adopt one into the page's shadow root, so they use a <style> element.
+    // Policy (some sites forbid inline styles). Where adopting one fails, a
+    // <style> element is the fallback.
     applyStyles() {
       try {
         const sheet = new CSSStyleSheet();
@@ -278,12 +291,15 @@
       this.root.dataset.theme = theme;
       void this.root.offsetWidth;
       requestAnimationFrame(() => delete this.root.dataset.switching);
+      this.bubble.setTheme(theme, this.state.prefs.readableText);
     }
 
     applyState(state) {
       this.state = state;
       this.root.dataset.readable = state.prefs.readableText ? 'true' : 'false';
       this.blipper.enabled = Boolean(state.prefs.sound);
+      this.bubble.setTheme(this.root.dataset.theme, state.prefs.readableText);
+      this.bubble.setPrefs({ sound: state.prefs.sound, shortcuts: state.shortcuts });
       this.bubble.setReadChat(state.prefs.readChat);
       this.bubbleSize = { ...state.bubble };
       this.shortcuts = {};
@@ -674,13 +690,12 @@
       this.fox.hush();
       this.bubble.setBlocked(blocked && blocked.detail);
       this.bubble.setLine(text || this.line(blocked ? blocked.line : 'open'), { onChar: this.blip });
-      if (!this.bubble.input.value && this.last) this.bubble.setDraft(this.last.question);
+      if (this.last) this.bubble.prefillDraft(this.last.question);
       this.placeBubble();
       this.bubble.open();
       this.fox.setExpanded(true);
       requestAnimationFrame(() => {
-        this.bubble.focusPrimary();
-        if (this.bubble.input.value && this.shadow.activeElement === this.bubble.input) this.bubble.input.select();
+        this.bubble.focusPrimary({ select: true });
       });
     }
 
@@ -805,7 +820,7 @@
     ask(raw) {
       const question = String(raw || '').trim();
       if (!question) {
-        this.bubble.input.focus();
+        this.bubble.focusInput();
         return;
       }
       const blocked = this.blocker();
@@ -967,7 +982,7 @@
       this.bubble.setLine(this.line('cleared'), { onChar: this.blip });
       if (['thinking', 'reacting'].includes(this.mode)) this.rest();
       if (!this.freePlaced) this.placeBubble();
-      this.bubble.input.focus();
+      this.bubble.focusInput();
     }
 
     stop() {

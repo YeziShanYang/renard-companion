@@ -39,6 +39,12 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "optional_host_permissions": ["https://*/*"],
+  "web_accessible_resources": [
+    {
+      "resources": ["bubble/bubble.html"],
+      "matches": ["https://*/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://claude.ai/*", "https://chatgpt.com/*", "https://chat.openai.com/*"],

@@ -1,0 +1,662 @@
+/* Renard's bubble contents, in an extension frame inside the bubble drawn on
+   the page. The page can't read or style this document. */
+
+@font-face {
+  font-family: 'Renard Pixel';
+  src: url('../fonts/Silkscreen-Regular.ttf') format('truetype');
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: 'Renard Pixel';
+  src: url('../fonts/Silkscreen-Bold.ttf') format('truetype');
+  font-weight: 700;
+}
+
+/* ---- tokens (kept in step with the page's, in content/renard.css) ------ */
+
+:root {
+  --u: 3px; /* one art pixel at 3x */
+  --paper: #fff8ee;
+  --panel: #fffdf9;
+  --ink: #2f2f2e;
+  --text: #2a2522;
+  --muted: #6b5d52;
+  --orange: #d67941;
+  --orange-hi: #e28a54;
+  --rust: #9d5021;
+  --on-orange: #1e1c1a;
+  --accent: #2b7a80;
+  --link: #1f6b72;
+  --btn: #f1e2cc;
+  --btn-hi: #f8ecdb;
+  --code-bg: #f3eadf;
+  --notice: #fbe6d4;
+  --drop: rgba(47, 47, 46, 0.28);
+  --focus: #2b7a80;
+
+  --font-pixel: 'Renard Pixel', ui-monospace, Menlo, Consolas, monospace;
+  --font-read: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-ui: var(--font-pixel);
+  --ui-size: 16px;
+
+  color: var(--text);
+  font: 15px/1.55 var(--font-read);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme='dark'] {
+  --paper: #2b2420;
+  --panel: #211c19;
+  --ink: #c9733e;
+  --text: #f2e8dc;
+  --muted: #bcaa98;
+  --orange: #d67941;
+  --orange-hi: #e28a54;
+  --rust: #9d5021;
+  --on-orange: #1e1c1a;
+  --accent: #6cc3c6;
+  --link: #8fd6d8;
+  --btn: #3a312b;
+  --btn-hi: #463b34;
+  --code-bg: #1a1614;
+  --notice: #3d2b20;
+  --drop: rgba(0, 0, 0, 0.5);
+  --focus: #6cc3c6;
+}
+
+/* Readable text: plain font for canned lines and controls. */
+:root[data-readable='true'] {
+  --font-ui: var(--font-read);
+  --ui-size: 14px;
+}
+
+:root[data-switching] *,
+:root[data-switching] *::before,
+:root[data-switching] *::after {
+  transition: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.px-icon {
+  display: block;
+}
+
+/* ---- panel --------------------------------------------------------------- */
+
+/* Fits its content up to --max-h and reports its height, or fills the frame
+   when the bubble has a fixed size (resized or expanded). */
+.panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: var(--max-h, 80vh);
+  padding: 14px 14px 12px;
+}
+
+.panel[data-fill='true'] {
+  height: 100vh;
+  max-height: none;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-inline-start: 6px;
+}
+
+.panel[data-side='right'] .head {
+  padding-inline: 0 14px;
+}
+
+.line {
+  flex: 1;
+  min-height: 1.25em;
+  margin: 4px 0 0;
+  font: var(--ui-size) / 1.25 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.head-actions,
+.head-group {
+  display: flex;
+  gap: 8px;
+}
+
+.head-actions {
+  gap: 16px;
+}
+
+
+/* ---- buttons ------------------------------------------------------------ */
+
+/* Chunky square buttons: 2px notched outline, a thicker bottom edge, and a
+   2px drop when pressed. Pixel UI snaps, so there is no press transition. */
+.btn,
+.icon-btn {
+  --bu: 2px;
+  margin: var(--bu) var(--bu) calc(var(--bu) * 2);
+  border: 0;
+  background: var(--btn);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow:
+    0 calc(var(--bu) * -1) 0 0 var(--ink),
+    calc(var(--bu) * -1) 0 0 0 var(--ink),
+    var(--bu) 0 0 0 var(--ink),
+    0 var(--bu) 0 0 var(--ink),
+    0 calc(var(--bu) * 2) 0 0 var(--ink);
+  outline: var(--bu) solid transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px 6px;
+  font: var(--ui-size) / 1 var(--font-ui);
+  white-space: nowrap;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+.btn:not(:disabled):active,
+.icon-btn:not(:disabled):active {
+  translate: 0 var(--bu);
+  box-shadow:
+    0 calc(var(--bu) * -1) 0 0 var(--ink),
+    calc(var(--bu) * -1) 0 0 0 var(--ink),
+    var(--bu) 0 0 0 var(--ink),
+    0 var(--bu) 0 0 var(--ink);
+}
+
+@media (hover: hover) {
+  .btn:not(:disabled):hover,
+  .icon-btn:not(:disabled):hover {
+    background: var(--btn-hi);
+  }
+
+  .btn-primary:not(:disabled):hover {
+    background: var(--orange-hi);
+  }
+}
+
+.btn-primary {
+  background: var(--orange);
+  color: var(--on-orange);
+}
+
+.btn:disabled,
+.icon-btn:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.btn:focus-visible,
+.icon-btn:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+/* Expand/collapse and copy/check keep both icons in the DOM and cross-fade. */
+.icon-btn > .px-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity 200ms ease-out,
+    scale 200ms ease-out;
+}
+
+.icon-btn > .px-icon-collapse,
+.copy-btn > .px-icon-check,
+.icon-btn[aria-pressed='true'] > .px-icon-expand,
+.copy-btn[data-copied='true'] > .px-icon-copy {
+  opacity: 0;
+  scale: 0.5;
+}
+
+.icon-btn[aria-pressed='true'] > .px-icon-collapse,
+.copy-btn[data-copied='true'] > .px-icon-check {
+  opacity: 1;
+  scale: 1;
+}
+
+.copy-btn[data-copied='true'] {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn > .px-icon {
+    scale: 1 !important;
+  }
+}
+
+.send-btn .px-icon-stop {
+  display: none;
+  width: 10px;
+  height: 10px;
+}
+
+.panel[data-streaming='true'] .send-btn .px-icon-stop {
+  display: block;
+}
+
+/* ---- notice -------------------------------------------------------------- */
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 10px;
+  background: var(--notice);
+}
+
+.notice-text {
+  flex: 1 1 180px;
+  margin: 0;
+  font: 13px/1.45 var(--font-read);
+  overflow-wrap: anywhere;
+}
+
+/* ---- question and answer ----------------------------------------------- */
+
+.qa {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.asked {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font: 13px/1.4 var(--font-read);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.asked-label {
+  font-weight: 600;
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+  font: italic 12.5px/1.4 var(--font-read);
+}
+
+.answer-box {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 2px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.answer-box:has(.answer:empty) {
+  display: none;
+}
+
+.answer {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: var(--answer-max, 70vh);
+  padding: 12px 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  color: var(--text);
+  font: 15px/1.6 var(--font-read);
+  overflow-wrap: break-word;
+}
+
+.panel[data-fill='true'] .answer {
+  max-height: none;
+}
+
+.answer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.answer > :first-child {
+  margin-top: 0;
+}
+
+.answer > :last-child {
+  margin-bottom: 0;
+}
+
+.answer p,
+.answer ul,
+.answer ol,
+.answer pre,
+.answer blockquote,
+.answer .table-wrap {
+  margin: 0 0 0.75em;
+}
+
+.answer h3,
+.answer h4,
+.answer h5 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.answer h3 {
+  font-size: 16.5px;
+}
+
+.answer h4 {
+  font-size: 15.5px;
+}
+
+.answer h5 {
+  font-size: 15px;
+}
+
+.answer ul,
+.answer ol {
+  padding-left: 1.4em;
+}
+
+.answer li + li {
+  margin-top: 0.25em;
+}
+
+.answer li > p {
+  margin: 0;
+}
+
+.answer li > ul,
+.answer li > ol {
+  margin: 0.25em 0 0;
+}
+
+.answer code {
+  padding: 0.1em 0.35em;
+  background: var(--code-bg);
+  font: 0.88em/1.4 var(--font-mono);
+}
+
+.answer pre {
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--code-bg);
+  font: 13px/1.5 var(--font-mono);
+}
+
+.answer pre code {
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+
+.answer a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Where a link with its own text really goes. */
+.answer .link-dest {
+  color: var(--muted);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.answer .plain {
+  white-space: pre-wrap;
+}
+
+.answer blockquote {
+  padding-left: 10px;
+  border-left: 3px solid var(--orange);
+  color: var(--muted);
+}
+
+.answer hr {
+  height: 2px;
+  margin: 1em 0;
+  border: 0;
+  background: var(--ink);
+  opacity: 0.35;
+}
+
+.answer .table-wrap {
+  overflow-x: auto;
+}
+
+.answer table {
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.answer th,
+.answer td {
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent);
+  text-align: left;
+  vertical-align: top;
+}
+
+.answer th {
+  font-weight: 600;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: var(--orange);
+  animation: renard-blink 1s steps(1) infinite;
+}
+
+@keyframes renard-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---- input --------------------------------------------------------------- */
+
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto; /* stays at the bottom of a resized bubble */
+}
+
+.input-box {
+  position: relative;
+  margin: 2px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.input-box:focus-within {
+  box-shadow:
+    0 -2px 0 0 var(--focus),
+    0 2px 0 0 var(--focus),
+    -2px 0 0 0 var(--focus),
+    2px 0 0 0 var(--focus);
+}
+
+.input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 38px;
+  max-height: 120px;
+  margin: 0;
+  padding: 9px 10px 8px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: 15px/1.4 var(--font-read);
+  caret-color: var(--orange);
+}
+
+.input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+  font: var(--ui-size) / 1.3 var(--font-ui);
+}
+
+/* Blinking block cursor while the box is empty and focused. */
+.input:placeholder-shown {
+  caret-color: transparent;
+}
+
+.input:focus:placeholder-shown {
+  text-indent: 14px;
+}
+
+.block-caret {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: none;
+  width: 9px;
+  height: 18px;
+  background: var(--orange);
+  pointer-events: none;
+  animation: renard-blink 1.06s steps(1) infinite;
+}
+
+.input-box:focus-within .input:placeholder-shown + .block-caret {
+  display: block;
+}
+
+.ask-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* ---- read-chat switch ---------------------------------------------------- */
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font: var(--ui-size) / 1 var(--font-ui);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 14px;
+  margin: 2px;
+  background: var(--btn);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  background: var(--ink);
+  transition: translate 120ms steps(3, end);
+}
+
+.switch-input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch-input:checked + .switch-track .switch-thumb {
+  translate: 14px 0;
+  background: var(--paper);
+}
+
+.switch-input:focus-visible + .switch-track {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.switch .px-icon-chat {
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-cursor,
+  .block-caret {
+    animation: none;
+  }
+
+  .switch-thumb {
+    transition: none;
+  }
+}

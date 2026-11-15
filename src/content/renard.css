@@ -1,5 +1,6 @@
-/* Renard's on-page UI. Loaded into a closed Shadow DOM, so nothing here
-   touches the host site and the host site's styles stay out. */
+/* Renard's on-page UI: the fox, its speech tag, and the bubble's frame.
+   Loaded into a closed Shadow DOM, so nothing here touches the host site and
+   the host site's styles stay out. */
 
 :host {
   all: initial !important;
@@ -251,16 +252,14 @@
 
 /* ---- bubble ------------------------------------------------------------ */
 
+/* The bubble's outline, tail, and resize corners are drawn here; its
+   contents live in an extension frame (bubble/), out of the page's reach. */
 .bubble {
   position: fixed;
   top: auto;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   width: var(--w, 520px);
   max-height: var(--max-h, 80vh);
-  padding: 14px 14px 12px;
   pointer-events: auto;
   color: var(--text);
   opacity: 0;
@@ -290,7 +289,24 @@
   height: var(--expanded-h, 80vh);
 }
 
-.bubble[data-sized='true'] .answer {
+.bubble-frame {
+  display: block;
+  width: 100%;
+  height: var(--frame-h, 120px);
+  max-height: var(--max-h, 80vh);
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+}
+
+/* Corner drags keep their pointer events even over the frame. */
+.bubble[data-resizing] .bubble-frame {
+  pointer-events: none;
+}
+
+.bubble[data-sized='true'] .bubble-frame,
+.bubble[data-expanded='true'] .bubble-frame {
+  height: 100%;
   max-height: none;
 }
 
@@ -318,535 +334,13 @@
   transform: scaleX(-1);
 }
 
-.head {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding-inline-start: 6px;
-}
-
-.bubble[data-side='right'] .head {
-  padding-inline: 0 14px;
-}
-
-.line {
-  flex: 1;
-  min-height: 1.25em;
-  margin: 4px 0 0;
-  font: var(--ui-size) / 1.25 var(--font-ui);
-  overflow-wrap: anywhere;
-}
-
-.head-actions,
-.head-group {
-  display: flex;
-  gap: 8px;
-}
-
-.head-actions {
-  gap: 16px;
-}
-
-/* ---- buttons ------------------------------------------------------------ */
-
-/* Chunky square buttons: 2px notched outline, a thicker bottom edge, and a
-   2px drop when pressed. Pixel UI snaps, so there is no press transition. */
-.btn,
-.icon-btn {
-  --bu: 2px;
-  margin: var(--bu) var(--bu) calc(var(--bu) * 2);
-  border: 0;
-  background: var(--btn);
-  color: var(--text);
-  cursor: pointer;
-  box-shadow:
-    0 calc(var(--bu) * -1) 0 0 var(--ink),
-    calc(var(--bu) * -1) 0 0 0 var(--ink),
-    var(--bu) 0 0 0 var(--ink),
-    0 var(--bu) 0 0 var(--ink),
-    0 calc(var(--bu) * 2) 0 0 var(--ink);
-  outline: var(--bu) solid transparent;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px 6px;
-  font: var(--ui-size) / 1 var(--font-ui);
-  white-space: nowrap;
-}
-
-.icon-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-}
-
-.btn:not(:disabled):active,
-.icon-btn:not(:disabled):active {
-  translate: 0 var(--bu);
-  box-shadow:
-    0 calc(var(--bu) * -1) 0 0 var(--ink),
-    calc(var(--bu) * -1) 0 0 0 var(--ink),
-    var(--bu) 0 0 0 var(--ink),
-    0 var(--bu) 0 0 var(--ink);
-}
-
-@media (hover: hover) {
-  .btn:not(:disabled):hover,
-  .icon-btn:not(:disabled):hover {
-    background: var(--btn-hi);
-  }
-
-  .btn-primary:not(:disabled):hover {
-    background: var(--orange-hi);
-  }
-}
-
-.btn-primary {
-  background: var(--orange);
-  color: var(--on-orange);
-}
-
-.btn:disabled,
-.icon-btn:disabled {
-  cursor: default;
-  opacity: 0.45;
-}
-
-.btn:focus-visible,
-.icon-btn:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
-}
-
-/* Expand/collapse and copy/check keep both icons in the DOM and cross-fade. */
-.icon-btn > .px-icon {
-  grid-area: 1 / 1;
-  transition:
-    opacity 200ms ease-out,
-    scale 200ms ease-out;
-}
-
-.icon-btn > .px-icon-collapse,
-.copy-btn > .px-icon-check,
-.icon-btn[aria-pressed='true'] > .px-icon-expand,
-.copy-btn[data-copied='true'] > .px-icon-copy {
-  opacity: 0;
-  scale: 0.5;
-}
-
-.icon-btn[aria-pressed='true'] > .px-icon-collapse,
-.copy-btn[data-copied='true'] > .px-icon-check {
-  opacity: 1;
-  scale: 1;
-}
-
-.copy-btn[data-copied='true'] {
-  color: var(--accent);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .icon-btn > .px-icon {
-    scale: 1 !important;
-  }
-}
-
-.send-btn .px-icon-stop {
-  display: none;
-  width: 10px;
-  height: 10px;
-}
-
-.bubble[data-streaming='true'] .send-btn .px-icon-stop {
-  display: block;
-}
-
-/* ---- notice -------------------------------------------------------------- */
-
-.notice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 8px 10px;
-  background: var(--notice);
-}
-
-.notice-text {
-  flex: 1 1 180px;
-  margin: 0;
-  font: 13px/1.45 var(--font-read);
-  overflow-wrap: anywhere;
-}
-
-/* ---- question and answer ----------------------------------------------- */
-
-.qa {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 0;
-}
-
-.asked {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font: 13px/1.4 var(--font-read);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-
-.asked-label {
-  font-weight: 600;
-}
-
-.note {
-  margin: 0;
-  color: var(--muted);
-  font: italic 12.5px/1.4 var(--font-read);
-}
-
-.answer-box {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  margin: 2px;
-  background: var(--panel);
-  box-shadow:
-    0 -2px 0 0 var(--ink),
-    0 2px 0 0 var(--ink),
-    -2px 0 0 0 var(--ink),
-    2px 0 0 0 var(--ink);
-}
-
-.answer-box:has(.answer:empty) {
-  display: none;
-}
-
-.answer {
-  flex: 1 1 auto;
-  min-height: 0;
-  max-height: 70vh;
-  padding: 12px 14px;
-  overflow: auto;
-  overscroll-behavior: contain;
-  color: var(--text);
-  font: 15px/1.6 var(--font-read);
-  overflow-wrap: break-word;
-}
-
-.bubble[data-expanded='true'] .answer {
-  max-height: none;
-}
-
-.answer:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
-
-.answer > :first-child {
-  margin-top: 0;
-}
-
-.answer > :last-child {
-  margin-bottom: 0;
-}
-
-.answer p,
-.answer ul,
-.answer ol,
-.answer pre,
-.answer blockquote,
-.answer .table-wrap {
-  margin: 0 0 0.75em;
-}
-
-.answer h3,
-.answer h4,
-.answer h5 {
-  margin: 1em 0 0.4em;
-  line-height: 1.3;
-  font-weight: 700;
-}
-
-.answer h3 {
-  font-size: 16.5px;
-}
-
-.answer h4 {
-  font-size: 15.5px;
-}
-
-.answer h5 {
-  font-size: 15px;
-}
-
-.answer ul,
-.answer ol {
-  padding-left: 1.4em;
-}
-
-.answer li + li {
-  margin-top: 0.25em;
-}
-
-.answer li > p {
-  margin: 0;
-}
-
-.answer li > ul,
-.answer li > ol {
-  margin: 0.25em 0 0;
-}
-
-.answer code {
-  padding: 0.1em 0.35em;
-  background: var(--code-bg);
-  font: 0.88em/1.4 var(--font-mono);
-}
-
-.answer pre {
-  padding: 10px 12px;
-  overflow-x: auto;
-  background: var(--code-bg);
-  font: 13px/1.5 var(--font-mono);
-}
-
-.answer pre code {
-  padding: 0;
-  background: none;
-  font: inherit;
-}
-
-.answer a {
-  color: var(--link);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-/* Where a link with its own text really goes. */
-.answer .link-dest {
-  color: var(--muted);
-  font-size: 0.86em;
-  overflow-wrap: anywhere;
-}
-
-.answer .plain {
-  white-space: pre-wrap;
-}
-
-.answer blockquote {
-  padding-left: 10px;
-  border-left: 3px solid var(--orange);
-  color: var(--muted);
-}
-
-.answer hr {
-  height: 2px;
-  margin: 1em 0;
-  border: 0;
-  background: var(--ink);
-  opacity: 0.35;
-}
-
-.answer .table-wrap {
-  overflow-x: auto;
-}
-
-.answer table {
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.answer th,
-.answer td {
-  padding: 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--ink) 35%, transparent);
-  text-align: left;
-  vertical-align: top;
-}
-
-.answer th {
-  font-weight: 600;
-}
-
-.stream-cursor {
-  display: inline-block;
-  width: 0.55em;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -0.15em;
-  background: var(--orange);
-  animation: renard-blink 1s steps(1) infinite;
-}
-
-@keyframes renard-blink {
-  50% {
-    opacity: 0;
-  }
-}
-
-/* ---- input --------------------------------------------------------------- */
-
-.ask {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: auto; /* stays at the bottom of a resized bubble */
-}
-
-.input-box {
-  position: relative;
-  margin: 2px;
-  background: var(--panel);
-  box-shadow:
-    0 -2px 0 0 var(--ink),
-    0 2px 0 0 var(--ink),
-    -2px 0 0 0 var(--ink),
-    2px 0 0 0 var(--ink);
-}
-
-.input-box:focus-within {
-  box-shadow:
-    0 -2px 0 0 var(--focus),
-    0 2px 0 0 var(--focus),
-    -2px 0 0 0 var(--focus),
-    2px 0 0 0 var(--focus);
-}
-
-.input {
-  display: block;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 38px;
-  max-height: 120px;
-  margin: 0;
-  padding: 9px 10px 8px;
-  border: 0;
-  outline: 0;
-  resize: none;
-  background: transparent;
-  color: var(--text);
-  font: 15px/1.4 var(--font-read);
-  caret-color: var(--orange);
-}
-
-.input::placeholder {
-  color: var(--muted);
-  opacity: 1;
-  font: var(--ui-size) / 1.3 var(--font-ui);
-}
-
-/* Blinking block cursor while the box is empty and focused. */
-.input:placeholder-shown {
-  caret-color: transparent;
-}
-
-.input:focus:placeholder-shown {
-  text-indent: 14px;
-}
-
-.block-caret {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  display: none;
-  width: 9px;
-  height: 18px;
-  background: var(--orange);
-  pointer-events: none;
-  animation: renard-blink 1.06s steps(1) infinite;
-}
-
-.input-box:focus-within .input:placeholder-shown + .block-caret {
-  display: block;
-}
-
-.ask-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-/* ---- read-chat switch ---------------------------------------------------- */
-
-.switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-  font: var(--ui-size) / 1 var(--font-ui);
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.switch-input {
-  position: absolute;
-  opacity: 0;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-}
-
-.switch-track {
-  position: relative;
-  flex: none;
-  width: 28px;
-  height: 14px;
-  margin: 2px;
-  background: var(--btn);
-  box-shadow:
-    0 -2px 0 0 var(--ink),
-    0 2px 0 0 var(--ink),
-    -2px 0 0 0 var(--ink),
-    2px 0 0 0 var(--ink);
-}
-
-.switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 10px;
-  height: 10px;
-  background: var(--ink);
-  transition: translate 120ms steps(3, end);
-}
-
-.switch-input:checked + .switch-track {
-  background: var(--accent);
-}
-
-.switch-input:checked + .switch-track .switch-thumb {
-  translate: 14px 0;
-  background: var(--paper);
-}
-
-.switch-input:focus-visible + .switch-track {
-  outline: 2px solid var(--focus);
-  outline-offset: 4px;
-}
-
-.switch .px-icon-chat {
-  color: var(--muted);
-}
-
 /* ---- resize corners ---------------------------------------------------- */
 
 /* Every corner resizes. The corner away from the fox always shows a grip;
    the others show theirs while the pointer is over the bubble. */
 .corner {
   position: absolute;
+  z-index: 1;
   display: grid;
   place-items: center;
   width: 16px;
@@ -907,12 +401,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .stream-cursor,
-  .block-caret {
-    animation: none;
-  }
-
-  .switch-thumb,
   .fox-art,
   .tag {
     transition: none;
