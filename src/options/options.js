@@ -482,17 +482,34 @@ async function renderSites() {
     text.append(title, hosts);
     const actions = document.createElement('div');
     actions.className = 'row-actions';
-    if (enabled && !(await hasOrigins(site.origins))) {
+    // The switch is on only while Renard can actually run there: the site is
+    // on in Renard and the browser has granted access to it. Firefox can
+    // leave that access out or let the user take it away.
+    const granted = await hasOrigins(site.origins);
+    if (enabled && !granted) {
+      text.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: "The browser hasn't let Renard into this site. Allow access to bring the fox here." }));
       actions.append(
         accessButton(site.origins, () => {
           renderSites();
         }),
       );
     }
-    const { label, input } = switchControl(`site-${site.id}`, enabled, title.id);
-    input.addEventListener('change', async () => {
-      await saveEntry('sites', site.id, input.checked);
-      renderSites();
+    const { label, input } = switchControl(`site-${site.id}`, enabled && granted, title.id);
+    // Turning a site on asks for access in the same click: Firefox shows its
+    // prompt only for a request made directly from user input. Declining
+    // leaves the site off.
+    input.addEventListener('click', () => {
+      if (!input.checked) {
+        saveEntry('sites', site.id, false).then(renderSites, renderSites);
+        return;
+      }
+      ext.permissions
+        .request({ origins: site.origins })
+        .then(
+          (ok) => saveEntry('sites', site.id, ok),
+          () => saveEntry('sites', site.id, false),
+        )
+        .then(renderSites, renderSites);
     });
     actions.append(label);
     li.append(text, actions);

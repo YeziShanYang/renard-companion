@@ -56,9 +56,11 @@ async function render() {
     $('site-on').checked = on;
   }
 
+  const listed = site && (site.generic ? s.otherSites.includes(site.name) : s.sites[site.id] !== false);
   let status;
   if (!spawned) status = 'Napping at home. Flip the switch to bring me out!';
   else if (on) status = 'Out exploring this page!';
+  else if (listed) status = `The browser hasn't let me into ${tab.host} yet. Flip the switch to let me in!`;
   else if (site) status = 'Not on this site yet. Want me here?';
   else if (tab && tab.insecure) status = 'I only visit secure (https) pages.';
   else if (tab && !tab.host) status = "I can't visit this kind of page.";

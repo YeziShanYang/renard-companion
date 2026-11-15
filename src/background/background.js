@@ -76,7 +76,10 @@ function siteFor(msg, sender) {
 async function publicState(site) {
   const s = await loadSettings();
   const key = site.key || site.id;
-  const on = site.generic ? s.otherSites.includes(site.name) && (await hasOrigins(site.origins)) : s.sites[site.id] !== false;
+  // On only while the browser lets Renard into the site, too: Firefox lets
+  // users take that access away (and doesn't grant it on every install).
+  const listed = site.generic ? s.otherSites.includes(site.name) : s.sites[site.id] !== false;
+  const on = listed && (await hasOrigins(site.origins));
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
   const local = provider.id === 'local' ? R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'] : null;
   const model = local || s.models[provider.id];
@@ -651,6 +654,9 @@ ext.permissions.onAdded.addListener((permissions) => {
   updateBadge().catch(() => {});
   broadcastRefresh();
   for (const host of grantedWebHosts(permissions)) addSite(host).catch(() => {});
+  // Access to claude.ai or ChatGPT granted later (from settings, the popup,
+  // or the browser's extensions panel): bring Renard to their open tabs now.
+  if (Object.values(R.SITES).some((site) => site.origins.some((o) => permissions.origins?.includes(o)))) injectOpenTabs();
 });
 ext.permissions.onRemoved.addListener(() => {
   updateBadge().catch(() => {});
