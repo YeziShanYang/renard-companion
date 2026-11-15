@@ -8,7 +8,7 @@
   "cleared": ["Fresh start!", "All clear! What's next?", "Wiped clean!"],
   "sleep": ["Zzz…"],
   "wake": ["Oh! I'm up!", "Huh? I'm awake!"],
-  "noKey": ["I need an API key to wake up!"],
+  "noKey": ["Connect me to a model to wake me up!"],
   "noPermission": ["I need permission to reach {provider}!"],
   "localMissing": ["I need to download my brain first!"],
   "localLoading": ["Waking up my brain…", "Stretching my paws…", "Warming up…"],

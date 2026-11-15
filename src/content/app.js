@@ -336,7 +336,7 @@
       if (!s.hasKey && s.provider === 'local') {
         return { line: 'localMissing', detail: `Download ${s.modelName || 'the built-in model'} in settings to get started.` };
       }
-      if (!s.hasKey) return { line: 'noKey', detail: `Add your ${s.providerName} API key in settings to get started.` };
+      if (!s.hasKey) return { line: 'noKey', detail: `Connect a model in settings to get started, with a key for ${s.providerName} or the built-in model.` };
       if (!s.apiPermission) return { line: 'noPermission', detail: `Allow Renard to reach ${s.providerName} in settings.` };
       return null;
     }
@@ -962,7 +962,7 @@
       const p = this.state.providerName;
       switch (m.kind) {
         case 'keyMissing':
-          return `Add your ${p} API key in settings.`;
+          return 'Connect a model in settings to keep going.';
         case 'permission':
           return `Allow Renard to reach ${p} in settings.`;
         case 'refused':

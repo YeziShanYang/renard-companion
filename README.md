@@ -12,11 +12,16 @@ Renard is a pixel-art fox companion that helps you read, summarize, and make
 sense of the page you're on. It lives in the side margins of claude.ai and
 chatgpt.com (and of any other website you add), wandering around a little
 while it waits. Click it and ask a question: the answer streams into a large,
-readable panel, from Anthropic, OpenAI, or Gemini through an API key added in
-settings, or from a built-in Gemma model that runs on the computer. With **Read chat** on, the
-conversation open on the page is sent along as context, so questions like
-"summarize this chat" work. On other websites the switch reads **Read page**
-and sends the page's text instead.
+readable panel.
+
+**No API key needed.** Renard runs Gemma, Google's open model, right on the
+computer's graphics chip: download it once in settings and it works offline,
+with nothing leaving the machine. Anthropic, OpenAI, and Gemini are there too,
+for anyone who wants a larger model and adds an API key.
+
+With **Read chat** on, the conversation open on the page is sent along as
+context, so questions like "summarize this chat" work. On other websites the
+switch reads **Read page** and sends the page's text instead.
 
 The fox's personality is scripted: canned lines (`src/lines.json`) and sprite
 animations. The AI is only the answer engine and has no persona.

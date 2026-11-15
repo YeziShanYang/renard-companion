@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Renard",
   "version": "0.1.0",
-  "description": "A pixel-art fox companion that helps you read, summarize, and make sense of the page you're on.",
+  "description": "A pixel-art fox companion that helps you make sense of the page you're on. No API key needed: it can run a model on your computer.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

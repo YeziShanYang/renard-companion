@@ -41,7 +41,8 @@ Both stores can use the same copy.
 **Summary** (under 250 characters):
 
 > A pixel-art fox companion that helps you read, summarize, and make sense of
-> the page you're on, from claude.ai and ChatGPT to any site you add.
+> the page you're on. No API key needed: it runs Gemma right on your computer,
+> or connects to Anthropic, OpenAI, or Gemini if you prefer.
 
 **Description:**
 
@@ -50,11 +51,13 @@ Both stores can use the same copy.
 > any other website you turn it on for. Click it, ask about the page, and the
 > answer streams into a large, readable panel.
 >
-> - Answers come from Anthropic, OpenAI, or Google Gemini, using an API key you
->   add in settings. Questions go straight from your browser to the provider
->   you choose; there is no Renard server.
-> - Or use the built-in model: download Gemma once and it runs on your
->   computer's graphics chip, with no key and nothing sent anywhere.
+> - No API key needed. Renard runs Gemma, Google's open model, locally on your
+>   computer's graphics chip. Download it once in settings (about 0.8 GB) and
+>   it works offline, with nothing you ask ever leaving your computer. It needs
+>   WebGPU: recent Chrome, or Firefox on Apple Silicon Macs and Windows.
+> - Want a larger model? Connect Anthropic, OpenAI, or Google Gemini with an
+>   API key. Questions go straight from your browser to that provider; there
+>   is no Renard server.
 > - Read chat: include the conversation on the page, so "summarize this chat"
 >   works. On other websites it reads the page instead. Turn it off any time.
 > - Your questions and answers stay out of the website's reach: the panel is
