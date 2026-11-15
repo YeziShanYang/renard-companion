@@ -669,9 +669,29 @@ ext.commands.onCommand.addListener(async (command, tab) => {
   if (tabId != null) ext.tabs.sendMessage(tabId, { type: 'renard:command', command }).catch(() => {});
 });
 
+// After an install, update or reload, tabs already open on Renard's sites
+// have the old copy of the content script (which removes its fox once it
+// notices) or no copy at all: Chrome doesn't inject into open tabs, and
+// Firefox doesn't for added sites. Each such tab gets the current copy, and
+// a tab that already has it ignores the second one.
+async function injectOpenTabs() {
+  const script = ext.runtime.getManifest().content_scripts[0];
+  const matches = [...script.matches, ...(await grantedOtherSites()).map(R.originFor)];
+  let tabs = [];
+  try {
+    tabs = await ext.tabs.query({ url: matches });
+  } catch {
+    return;
+  }
+  for (const t of tabs) {
+    await ext.scripting.executeScript({ target: { tabId: t.id }, files: script.js }).catch(() => {});
+  }
+}
+
 ext.runtime.onInstalled.addListener(async (details) => {
   updateBadge().catch(() => {});
   syncSiteScripts();
+  if (details.reason === 'install' || details.reason === 'update') injectOpenTabs();
   if (details.reason !== 'install') return;
   // First run only: open settings when no key is saved yet, so reinstalling
   // during development doesn't open another settings tab each time.
