@@ -11,6 +11,9 @@
   const { h } = R;
   const ext = R.ext;
   const instance = new URLSearchParams(location.search).get('i') || '';
+  // The answer area never shrinks below about four lines (with its padding),
+  // or its whole content when that is shorter.
+  const ANSWER_MIN = 120;
 
   let port = null;
   function post(msg) {
@@ -54,8 +57,13 @@
       this.copyBtn.append(R.icon('check'));
       this.clearBtn = iconButton('clear', 'Clear question and answer', () => post({ type: 'clear' }));
       this.answerActions = h('div', { class: 'head-group', hidden: true }, [this.copyBtn, this.clearBtn]);
+      // The question sits under the line, in the header, so the answer below
+      // never squeezes either of them. While a question is shown both keep
+      // to one line, with the full text in the tooltip.
+      this.askedText = h('span', { class: 'asked-text' });
+      this.asked = h('p', { class: 'asked', hidden: true }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]);
       const head = h('header', { class: 'head' }, [
-        this.line,
+        h('div', { class: 'head-text' }, [this.line, this.asked]),
         h('div', { class: 'head-actions' }, [this.answerActions, h('div', { class: 'head-group' }, [this.expandBtn, closeBtn])]),
       ]);
 
@@ -63,14 +71,10 @@
       this.settingsBtn = h('button', { class: 'btn', type: 'button', onclick: () => post({ type: 'settings' }) }, 'Open settings');
       this.notice = h('div', { class: 'notice', hidden: true }, [this.noticeText, this.settingsBtn]);
 
-      this.askedText = h('span', { class: 'asked-text' });
       this.note = h('p', { class: 'note', hidden: true });
       this.answer = h('div', { class: 'answer', tabindex: '0', role: 'region', 'aria-label': 'Answer' });
-      this.qa = h('div', { class: 'qa', hidden: true }, [
-        h('p', { class: 'asked' }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]),
-        this.note,
-        h('div', { class: 'answer-box' }, [this.answer]),
-      ]);
+      this.answerBox = h('div', { class: 'answer-box' }, [this.answer]);
+      this.qa = h('div', { class: 'qa', hidden: true }, [this.note, this.answerBox]);
       this.status = h('p', { class: 'sr-only', role: 'status' });
 
       this.input = h('textarea', {
@@ -139,19 +143,43 @@
         }
       });
 
-      // The content script sizes the frame to the panel.
-      let lastHeight = 0;
-      new ResizeObserver(() => {
+      // The content script sizes the frame to the panel: px is the panel's
+      // height, min the least it needs to show everything without clipping.
+      let last = '';
+      this.reportHeight = (force = false) => {
         const px = Math.ceil(this.el.getBoundingClientRect().height);
-        if (px !== lastHeight) {
-          lastHeight = px;
-          post({ type: 'height', px });
-        }
-      }).observe(this.el);
-      this.reportHeight = () => {
-        lastHeight = Math.ceil(this.el.getBoundingClientRect().height);
-        post({ type: 'height', px: lastHeight });
+        const min = this.minHeight();
+        if (!force && last === `${px}:${min}`) return;
+        last = `${px}:${min}`;
+        post({ type: 'height', px, min });
       };
+      new ResizeObserver(() => this.reportHeight()).observe(this.el);
+    }
+
+    // The answer area may shrink to a few lines (it scrolls) when the bubble
+    // is short; nothing else shrinks. These keep it from going smaller, and
+    // add up the panel's height at that size.
+    answerMin() {
+      return this.answerBox.getClientRects().length ? Math.min(this.answer.scrollHeight, ANSWER_MIN) : 0;
+    }
+
+    minHeight() {
+      const answerMin = this.answerMin();
+      this.el.style.setProperty('--answer-min', `${answerMin}px`);
+      const gap = (el) => parseFloat(getComputedStyle(el).rowGap) || 0;
+      const sum = (parts, el) => parts.reduce((a, b) => a + b, 0) + gap(el) * Math.max(0, parts.length - 1);
+      const qa = [];
+      if (!this.note.hidden) qa.push(this.note.getBoundingClientRect().height);
+      if (answerMin) qa.push(answerMin + 4); // the box's 2px margins
+      const qaMin = sum(qa, this.qa);
+      this.el.style.setProperty('--qa-min', `${qaMin}px`);
+      const parts = [];
+      for (const child of this.el.children) {
+        if (child.hidden || !child.getClientRects().length || getComputedStyle(child).position === 'absolute') continue;
+        parts.push(child === this.qa ? qaMin : child.getBoundingClientRect().height);
+      }
+      const cs = getComputedStyle(this.el);
+      return Math.ceil(sum(parts, this.el) + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom));
     }
 
     // ---- messages from the content script ----------------------------------
@@ -240,6 +268,7 @@
     setLine(text) {
       if (this.cancelType) this.cancelType();
       this.lineLive.textContent = text;
+      this.line.title = text;
       this.cancelType = R.typewrite(this.lineText, text, { onChar: () => this.blips && post({ type: 'blip' }) });
     }
 
@@ -276,8 +305,11 @@
 
     startAnswer(question) {
       this.qa.hidden = false;
+      this.asked.hidden = false;
+      this.el.dataset.asked = 'true';
       this.answerActions.hidden = false;
       this.askedText.textContent = question;
+      this.asked.title = question;
       this.setNote('');
       this.setNotice(null);
       this.setAnswer('', { streaming: true });
@@ -289,8 +321,11 @@
     reset() {
       this.setAnswer('', { streaming: false });
       this.qa.hidden = true;
+      this.asked.hidden = true;
+      delete this.el.dataset.asked;
       this.answerActions.hidden = true;
       this.askedText.textContent = '';
+      this.asked.title = '';
       this.setNote('');
       this.setNotice(null);
       this.setDraft('');
@@ -355,6 +390,7 @@
         (target || frag).append(h('span', { class: 'stream-cursor', 'aria-hidden': 'true' }));
       }
       box.replaceChildren(frag);
+      this.reportHeight();
       if (this.streaming && pinned) box.scrollTop = box.scrollHeight;
     }
 
@@ -389,7 +425,7 @@
       if (port || !key || e.source !== window.parent || !e.data || e.data.renard !== 'bubble' || e.data.key !== key || e.ports.length !== 1) return;
       port = e.ports[0];
       port.onmessage = (ev) => ev.data && typeof ev.data.type === 'string' && panel.handle(ev.data);
-      panel.reportHeight();
+      panel.reportHeight(true);
     };
     // Offers that arrive before the key are held (a few at most).
     const onMessage = (e) => {

@@ -32,6 +32,7 @@
       // One-off requests (focus, prefill) made before the frame connected.
       this.pending = new Map();
       this.layout = null;
+      this.minHeight = 0;
       this.instance = randomHex(12);
       this.key = randomHex(24);
       this.build();
@@ -131,6 +132,12 @@
         case 'height': {
           const px = Math.max(0, Math.min(10000, Math.round(Number(m.px) || 0)));
           this.el.style.setProperty('--frame-h', `${px}px`);
+          // The least height that shows everything; resizing stops here.
+          const min = Math.max(0, Math.min(10000, Math.round(Number(m.min) || 0)));
+          if (min !== this.minHeight) {
+            this.minHeight = min;
+            if (this.handlers.onMinHeight) this.handlers.onMinHeight();
+          }
           break;
         }
         case 'submit':
@@ -186,7 +193,9 @@
     // anchor 'bottom': offset is the distance from the viewport bottom and the
     // bubble grows upward; anchor 'top': offset is the top, growing downward.
     // height: a fixed height (from resizing), or 0 to fit the content.
-    place({ side, anchor, offset, left, width, height = 0, maxHeight, tailOffset, expanded, expandedHeight }) {
+    // expanded: the reading view's height applies; pressed: the expand
+    // button shows the reading view as on (before a question it only widens).
+    place({ side, anchor, offset, left, width, height = 0, maxHeight, tailOffset, expanded, pressed = expanded, expandedHeight }) {
       const s = this.el.style;
       this.el.dataset.side = side;
       this.el.dataset.anchor = anchor;
@@ -204,7 +213,7 @@
         type: 'layout',
         side,
         fill: Boolean(height || expanded),
-        expanded: Boolean(expanded),
+        expanded: Boolean(pressed),
         maxHeight: Math.round(maxHeight),
         pageHeight: innerHeight,
       };

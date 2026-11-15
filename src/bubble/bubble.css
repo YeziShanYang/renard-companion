@@ -126,6 +126,14 @@ body {
   max-height: none;
 }
 
+/* The header (line, question, buttons), notice and input keep their own
+   height at any bubble size; only the answer area flexes. */
+.head,
+.notice,
+.ask {
+  flex: none;
+}
+
 .head {
   display: flex;
   align-items: flex-start;
@@ -133,16 +141,32 @@ body {
   padding-inline-start: 6px;
 }
 
+.head-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .panel[data-side='right'] .head {
   padding-inline: 0 14px;
 }
 
 .line {
-  flex: 1;
   min-height: 1.25em;
   margin: 4px 0 0;
   font: var(--ui-size) / 1.25 var(--font-ui);
   overflow-wrap: anywhere;
+}
+
+/* With a question shown, the line and the question take one line each at any
+   width, so the header's height never changes as the bubble resizes. */
+.panel[data-asked] .line,
+.asked {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .head-actions,
@@ -300,17 +324,13 @@ body {
   flex: 1 1 auto;
   flex-direction: column;
   gap: 6px;
-  min-height: 0;
+  min-height: var(--qa-min, 0);
 }
 
 .asked {
-  margin: 3px 0 0;
+  margin: 0;
   color: var(--muted);
   font: 13px/1.4 var(--font-read);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
 }
 
 .asked-label {
@@ -326,7 +346,7 @@ body {
 .answer-box {
   display: flex;
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: var(--answer-min, 0);
   margin: 2px;
   background: var(--panel);
   box-shadow:
