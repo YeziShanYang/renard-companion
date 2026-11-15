@@ -141,6 +141,7 @@ ext.tabs.onRemoved.addListener(async (tabId) => {
 // (two tabs saving a position, a site added then removed) each start from the
 // other's result instead of overwriting it.
 let writes = Promise.resolve();
+const ENTRY_SETTINGS = new Set(['sites', 'prefs', 'apiKeys', 'models', 'localModel']);
 function update(key, change) {
   const run = writes.then(async () => {
     const value = (await loadSettings([key]))[key];
@@ -214,6 +215,16 @@ const handlers = {
   'renard:addSite': async (msg, sender) => {
     if (!fromExtensionPage(sender)) throw new Error('Not allowed');
     return addSite(msg.host);
+  },
+
+  // One entry of a nested setting, from the settings page, applied on top of
+  // the stored value in the same queue as every other write.
+  'renard:setEntry': async (msg, sender) => {
+    if (!fromSettings(sender) || !ENTRY_SETTINGS.has(msg.key) || typeof msg.entry !== 'string' || ['__proto__', 'constructor', 'prototype'].includes(msg.entry)) {
+      throw new Error('Not allowed');
+    }
+    await update(msg.key, (value) => ({ ...value, [msg.entry]: msg.value }));
+    return { ok: true };
   },
 
   // claude.ai or ChatGPT switched on or off from the popup.
@@ -394,8 +405,10 @@ async function answer(msg, post, signal) {
 ext.runtime.onConnect.addListener((port) => {
   if (port.name !== 'renard:local' || port.sender?.id !== ext.runtime.id || !fromSettings(port.sender)) return;
   // A download can't be cancelled midway, so it isn't tied to the page: if
-  // settings closes, it still finishes and is recorded as ready. Messages to
-  // a page that has gone are dropped.
+  // settings closes, it carries on and is recorded as ready when it finishes,
+  // unless the browser suspends the idle background first (then Download
+  // again reuses the files already fetched). Messages to a page that has gone
+  // are dropped.
   let open = true;
   port.onDisconnect.addListener(() => {
     open = false;
