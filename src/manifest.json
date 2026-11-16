@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Renard: Pixel Fox Companion",
   "short_name": "Renard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An open-source pixel-art fox that helps you understand what you're reading. It can run fully on your computer, without an API key.",
   "icons": {
     "16": "icons/icon-16.png",

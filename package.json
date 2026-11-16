@@ -1,6 +1,6 @@
 {
   "name": "renard-companion",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "Pixel-art fox companion for reading and summarizing web pages, with a built-in model or your own API key.",
