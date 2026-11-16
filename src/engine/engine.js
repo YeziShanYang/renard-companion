@@ -229,6 +229,17 @@ async function generate(msg, emit, signal) {
         if (text) emit({ type: 'delta', text });
       },
     });
+  } catch (err) {
+    // A failed run (WebGPU failing to map a buffer, or losing the device)
+    // leaves ONNX Runtime's GPU device unusable for the rest of this page,
+    // so every later question would fail too. The page hosting the engine
+    // (Firefox's background page, Chrome's offscreen document) reloads
+    // once this error has been sent, and the next question starts on a
+    // fresh device.
+    await unload();
+    setTimeout(() => location.reload(), 1000);
+    const name = (R.own(R.LOCAL_MODELS, msg.key) || {}).name || 'The built-in model';
+    throw new EngineError('unknown', `${name} ran into a GPU error and is restarting. Ask again in a moment, or try a shorter question or Read page off.`);
   } finally {
     if (signal) signal.removeEventListener('abort', onAbort);
     if (active === stopper) active = null;

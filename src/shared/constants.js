@@ -120,11 +120,14 @@
   R.LIMITS = {
     chatChars: 40000, // most recent part of a long chat sent as context
     turnChars: 12000, // a single very long message is trimmed from its start
-    // The built-in model reads long chats slowly on a laptop GPU.
-    localChatChars: 12000,
-    localTurnChars: 6000,
+    // The built-in model reads long input slowly on a laptop GPU, and in
+    // Firefox its WebGPU run fails past about 2,000 tokens (a Gemma 3 1B
+    // prompt of 12,000 characters failed, 10,000 of plain prose passed; page
+    // text has more tokens per character).
+    localChatChars: 6000,
+    localTurnChars: 3000,
     // Text of another website's page, kept from its start.
     pageChars: 40000,
-    localPageChars: 12000,
+    localPageChars: 6000,
   };
 })();
