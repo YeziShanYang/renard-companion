@@ -194,6 +194,11 @@
           this.expandBtn.setAttribute('aria-pressed', m.expanded ? 'true' : 'false');
           this.expandBtn.setAttribute('aria-label', m.expanded ? 'Shrink' : 'Expand');
           this.expandBtn.title = m.expanded ? 'Shrink' : 'Expand';
+          // Reported now, so the last height the page hears is measured in
+          // this layout: a report from just before it (the panel filling an
+          // old, taller size) could otherwise arrive last and keep the
+          // bubble tall.
+          this.reportHeight(true);
           break;
         case 'theme': {
           const root = document.documentElement;
