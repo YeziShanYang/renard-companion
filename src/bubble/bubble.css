@@ -1,16 +1,24 @@
 /* Renard's bubble contents, in an extension frame inside the bubble drawn on
    the page. The page can't read or style this document. */
 
+/* Silkscreen's capitals are 0.625em tall, and its 1.03em ascent and 0.25em
+   descent put them about 0.08em below the middle of any line. These
+   overrides keep the line height and give the capitals equal room above and
+   below, so pixel text sits centered in its line. */
 @font-face {
   font-family: 'Renard Pixel';
   src: url('../fonts/Silkscreen-Regular.ttf') format('truetype');
   font-weight: 400;
+  ascent-override: 95.25%;
+  descent-override: 32.75%;
 }
 
 @font-face {
   font-family: 'Renard Pixel';
   src: url('../fonts/Silkscreen-Bold.ttf') format('truetype');
   font-weight: 700;
+  ascent-override: 95.25%;
+  descent-override: 32.75%;
 }
 
 /* ---- tokens (kept in step with the page's, in content/renard.css) ------ */
@@ -46,6 +54,7 @@
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font-ui: var(--font-pixel);
   --ui-size: 16px;
+  --cap-height: 0.625em; /* Silkscreen's capitals (1cap would read 0.7em from its OS/2 table) */
 
   color: var(--text);
   font: 15px/1.55 var(--font-read);
@@ -82,6 +91,7 @@
 :root[data-readable='true'] {
   --font-ui: var(--font-read);
   --ui-size: 14px;
+  --cap-height: 1cap;
 }
 
 :root[data-switching] *,
@@ -747,16 +757,25 @@ body {
   text-indent: 14px;
 }
 
+/* The size of one capital in the placeholder's font. It sits on a line of
+   that font at the input's top padding, which puts it on the placeholder's
+   baseline. */
 .block-caret {
   position: absolute;
-  top: 10px;
+  top: 9px;
   left: 10px;
   display: none;
-  width: 9px;
-  height: 18px;
-  background: var(--orange);
+  font: var(--ui-size) / 1.3 var(--font-ui);
   pointer-events: none;
   animation: renard-blink 1.06s steps(1) infinite;
+}
+
+.block-caret::before {
+  content: '';
+  display: inline-block;
+  width: 0.5em;
+  height: var(--cap-height);
+  background: var(--orange);
 }
 
 .input-box:focus-within .input:placeholder-shown + .block-caret {
