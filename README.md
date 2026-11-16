@@ -38,7 +38,8 @@ npm install
 ```
 
 `npm install` also copies the built-in model's engine (Transformers.js and ONNX
-Runtime Web, about 28 MB) into the git-ignored `src/vendor/`. Renard doesn't
+Runtime Web, about 28 MB) into the git-ignored `src/vendor/`, along with KaTeX
+and highlight.js (under 1 MB), which format math and code in answers. Renard doesn't
 need any dependency's install scripts. To skip them, run
 `npm ci --ignore-scripts && npm run vendor` instead.
 
@@ -178,7 +179,7 @@ src/
   lines.json             canned fox lines
   fonts/                 Silkscreen (SIL Open Font License)
   icons/                 toolbar icons (original fox head, from scripts/make-icons.mjs)
-  vendor/                Transformers.js and ONNX Runtime Web (copied on npm install)
+  vendor/                Transformers.js, ONNX Runtime Web, KaTeX, highlight.js (copied on npm install)
 scripts/                 icon generator, engine vendoring, store packaging
 test/                    unit tests (node --test)
 ```
@@ -263,7 +264,8 @@ These parts have their own terms:
   included in this repo.
 - Silkscreen font by The Silkscreen Project Authors, under the SIL Open Font
   License (`src/fonts/OFL.txt`).
-- Transformers.js by Hugging Face (Apache 2.0) and ONNX Runtime Web by
-  Microsoft (MIT), copied into `src/vendor/` on install.
+- Transformers.js by Hugging Face (Apache 2.0), ONNX Runtime Web by Microsoft
+  (MIT), KaTeX (MIT), and highlight.js (BSD 3-Clause), copied into
+  `src/vendor/` on install.
 - Gemma models are by Google and are downloaded from Hugging Face under the
   terms on each model's page.

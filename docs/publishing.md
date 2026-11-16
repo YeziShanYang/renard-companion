@@ -79,10 +79,12 @@ Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("
 3. Upload `dist/renard-firefox-<version>.zip`.
 4. Source code: AMO doesn't need a source submission. Renard's own code ships
    as written, with no minifying, bundling, or transpiling. The only minified
-   files are third-party libraries copied unmodified from npm
-   (`src/vendor/transformers/`: Transformers.js and ONNX Runtime Web, with
-   versions in its `NOTICE.md`). The linter's `eval` warnings come from those
-   files, and Renard's content security policy blocks those code paths. The
+   files are third-party libraries copied unmodified from npm, each folder
+   with its versions in a `NOTICE.md`: `src/vendor/transformers/`
+   (Transformers.js and ONNX Runtime Web), `src/vendor/katex/` (KaTeX and its
+   fonts, for math in answers) and `src/vendor/highlight/` (highlight.js, for
+   code in answers). The linter's warnings come from those files, and
+   Renard's content security policy blocks the `eval` code paths. The
    built-in model's files are pinned to a Hugging Face commit (`revision` in
    `src/shared/constants.js`).
 
@@ -93,8 +95,9 @@ Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("
    **Notes to reviewer** (paste, updating versions and hashes if the
    libraries change):
 
-   > The three linter warnings (eval / Function constructor / dynamic import)
-   > are all inside unmodified third-party files in vendor/transformers/:
+   > The four linter warnings are all inside unmodified third-party files.
+   > Three (eval / Function constructor / dynamic import) are in
+   > vendor/transformers/:
    > transformers.min.js is dist/transformers.min.js from the npm package
    > @huggingface/transformers 4.3.2, and ort-wasm-simd-threaded.asyncify.mjs
    > and .wasm are from dist/ of onnxruntime-web
@@ -111,6 +114,21 @@ Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("
    > SHA-256: transformers.min.js 8b5a3171f8876bab2b1820a7d65eb87628e3d30bb5ea85b9dd398e76eb34decb;
    > ort-wasm-simd-threaded.asyncify.mjs 0966b6105cd936744498aa60df7a22cbd47af3374dbc64a9ab561c08a71e3611;
    > ort-wasm-simd-threaded.asyncify.wasm 49871f5a4409519797e127440868a6d1923339d9185907f301a5b2a1d90af082.
+   >
+   > The fourth (innerHTML) is in vendor/highlight/highlight.min.js, the
+   > common-languages build from the npm package @highlightjs/cdn-assets
+   > 11.12.0, inside highlightElement(), which Renard doesn't call. Renard
+   > calls hljs.highlight() on code from an answer, parses the returned markup
+   > in an inert document (DOMParser) and copies only its text and its
+   > "hljs-*" class spans into the answer (content/markdown.js).
+   > vendor/katex/ holds katex.min.js, katex.min.css and
+   > the woff2 fonts from dist/ of the npm package katex 0.19.1, used with
+   > trust: false, so formulas can't add links, images or attributes. Both
+   > run only in the extension's own bubble page, never on the website.
+   >
+   > SHA-256: highlight.min.js 8ab71eb09c51f501e5e25157d9cff100e46cc29bcbfc744d0b746d451fca7f53;
+   > katex.min.js fa140498b8cfc8302cbe5e7cb1bdbc1f952bc38b3fa258ede09e73edbf9a74bc;
+   > katex.min.css 00e0b094171b07f58422075f469b4feac2b2f7bce1aeec943c08da4d697f4dcf.
 
 5. **Listing details:** name, summary (250 characters or fewer), description,
    categories, support site (the repository's issues page), license (GNU
