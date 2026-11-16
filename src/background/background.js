@@ -73,7 +73,8 @@ function siteFor(msg, sender) {
   return site;
 }
 
-async function publicState(site) {
+// mount: the page is about to show the fox. tabId: the tab asking.
+async function publicState(site, { tabId, mount = false } = {}) {
   const s = await loadSettings();
   const key = site.key || site.id;
   // On only while the browser lets Renard into the site, too: Firefox lets
@@ -83,8 +84,21 @@ async function publicState(site) {
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
   const local = provider.id === 'local' ? R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'] : null;
   const model = local || s.models[provider.id];
+  // A fox already out in this tab on this site (the user opened another page
+  // of it) comes back in place instead of running in again. Sending it home
+  // or turning the site off forgets that.
+  let returning = false;
+  if (tabId != null && ext.storage.session) {
+    const name = `fox:${tabId}`;
+    if (!(s.spawned !== false && on)) await ext.storage.session.remove(name);
+    else if (mount) {
+      returning = (await ext.storage.session.get(name))[name] === key;
+      await ext.storage.session.set({ [name]: key });
+    }
+  }
   return {
     site: site.id,
+    returning,
     spawned: s.spawned !== false,
     enabled: s.spawned !== false && on,
     provider: provider.id,
@@ -137,7 +151,7 @@ const bubbleKeys = {
 ext.tabs.onRemoved.addListener(async (tabId) => {
   if (!ext.storage.session) return;
   const all = await ext.storage.session.get(null);
-  const stale = Object.keys(all).filter((k) => k.startsWith(`bubble:${tabId}:`));
+  const stale = Object.keys(all).filter((k) => k.startsWith(`bubble:${tabId}:`) || k === `fox:${tabId}`);
   if (stale.length) await ext.storage.session.remove(stale);
 });
 
@@ -162,7 +176,7 @@ function clamp(n, min, max) {
 }
 
 const handlers = {
-  'renard:getState': (msg, sender) => publicState(siteFor(msg, sender)),
+  'renard:getState': (msg, sender) => publicState(siteFor(msg, sender), { tabId: sender.tab && sender.tab.id, mount: msg.mount === true }),
 
   'renard:getAssets': () => loadAssets(),
 

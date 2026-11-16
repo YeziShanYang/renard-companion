@@ -146,7 +146,7 @@
       this.bindEvents();
       this.updateTheme();
       this.applyState(this.state);
-      this.enter();
+      this.enter({ returning: Boolean(this.state.returning) });
     }
 
     // Also runs in an orphaned copy (extension reloaded), whose extension
@@ -414,17 +414,26 @@
       this.fox.el.dataset.mode = mode;
     }
 
-    async enter() {
+    // returning: the fox was already out on this site in this tab, on the
+    // page before this one. It stays where it was rather than running in and
+    // greeting again.
+    async enter({ returning = false } = {}) {
       const pos = this.state.position || DEFAULT_POSITION;
       const f = this.fox;
       this.yFrac = pos.y;
       this.yHome = pos.y;
-      this.inset = this.randomInset(pos.edge);
+      // Arriving back, it takes the same spot on every page of the site.
+      const { min, max } = this.marginRange(pos.edge);
+      this.inset = returning ? Math.round((min + max) / 2) : this.randomInset(pos.edge);
       f.setEdge(pos.edge);
       f.y = f.yFromFrac(pos.y);
-      f.x = f.offscreenX(pos.edge);
+      f.x = returning ? f.xFor(pos.edge, this.inset) : f.offscreenX(pos.edge);
       f.faceIntoPage();
       f.apply();
+      if (returning) {
+        this.rest();
+        return;
+      }
       this.setMode('entering');
       // Trot in from off-screen, then pounce the last stretch into place.
       const target = f.xFor(pos.edge, this.inset);

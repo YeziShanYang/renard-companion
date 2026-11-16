@@ -47,7 +47,7 @@
   // Brings the page in line with settings: mount, update, or remove Renard.
   async function syncOnce() {
     if (retired) return;
-    const state = await R.send('renard:getState', { site: site.id });
+    const state = await R.send('renard:getState', { site: site.id, mount: !app });
     if (retired) return;
     if (!state.enabled) {
       // Unspawned or site turned off. A respawn that arrives during the
