@@ -131,7 +131,8 @@ test('turnFilter drops a made-up next turn and stops generation', async () => {
   assert.deepEqual(run(['Apples are a fru', 'it.\n\nUs', 'er Question: What else?\nAI Assistant: Pears.']), { out: 'Apples are a fruit.\n\n', stops: 1 });
   assert.deepEqual(run(['A fox is a canid.\n', '[User Question: why?]\n', 'more']), { out: 'A fox is a canid.\n', stops: 1 });
   assert.deepEqual(run(['Done.\n**AI Assistant Response:** extra']), { out: 'Done.\n', stops: 1 });
-  assert.deepEqual(run(['Hi!\nResponse: hello']), { out: 'Hi!\n', stops: 1 });
+  // Section labels that don't name a speaker are kept.
+  assert.deepEqual(run(['Sure.\n**Response:** here it is.\nQuestion: why? Because.']), { out: 'Sure.\n**Response:** here it is.\nQuestion: why? Because.', stops: 0 });
   // Ordinary answers pass through whole, including colons and lists.
   const answer = 'Foxes have bushy tails for:\n\n*   **Balance:** a counterweight.\n*   Warmth: they wrap it around.\nNote: tails also signal.';
   assert.deepEqual(run(answer.match(/.{1,7}/gs)), { out: answer, stops: 0 });

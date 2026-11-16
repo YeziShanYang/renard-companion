@@ -111,7 +111,9 @@ export function buildUserMessage(question, chat, page) {
 // start is held back until it's clear the line isn't such a speaker label,
 // and the line that starts one, with everything after it, is dropped and
 // stop() is called so generation ends. The first line is never cut.
-const MADE_UP_TURN = /^\s*[[(*#>_]*\s*(user|human|ai assistant|assistant|ai|response|user question|question)\b[^:\n]{0,24}:/i;
+// Only labels that name a speaker count: a bare "Question:" or "Response:"
+// is a heading the model uses in real answers.
+const MADE_UP_TURN = /^\s*[[(*#>_]*\s*(user|human|ai assistant|assistant|ai)\b[^:\n]{0,24}:/i;
 
 export function turnFilter(emit, stop) {
   let held = ''; // start of the current line, not shown yet
