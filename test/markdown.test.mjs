@@ -155,3 +155,10 @@ test('task lists', () => {
   assert.equal(list.items[1].children[1].items[0].task, true);
   assert.equal(parse('- plain')[0].items[0].task, undefined);
 });
+
+test('bold around inline code that contains asterisks', () => {
+  assert.deepEqual(parse('8. **`area = math.pi * (r ** 2)`:** the formula')[0].items[0].children[0].children, [
+    { type: 'strong', children: [{ type: 'code', text: 'area = math.pi * (r ** 2)' }, text(':')] },
+    text(' the formula'),
+  ]);
+});

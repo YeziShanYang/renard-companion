@@ -240,7 +240,8 @@
 
   const INLINE_RULES = [
     { re: /^\*\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*\*/, make: (m) => ({ type: 'strong', children: [{ type: 'em', children: parseInline(m[1]) }] }) },
-    { re: /^\*\*(?=\S)((?:[^*]|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
+    // Code spans inside are skipped whole, so "**`a ** b`:**" is bold code.
+    { re: /^\*\*(?=\S)((?:`[^`\n]+`|[^*`]|`|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
     { re: /^__(?=\S)([\s\S]+?)(?<=\S)__(?![A-Za-z0-9])/, word: true, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
     { re: /^\*(?=[^\s*])((?:\*\*[^*]+\*\*|[^*])+?)(?<=\S)\*(?!\*)/, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
     { re: /^_(?=[^\s_])([\s\S]+?)(?<=\S)_(?![A-Za-z0-9_])/, word: true, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
