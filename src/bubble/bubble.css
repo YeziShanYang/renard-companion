@@ -90,10 +90,17 @@
   transition: none !important;
 }
 
+/* The frame paints its own paper, the same color as the bubble behind it.
+   A transparent frame shows the canvas the browser picks for it, and
+   Firefox paints that opaque white on a dark page when the frame's
+   color-scheme and its element's differ. */
+html {
+  background: var(--paper);
+}
+
 html,
 body {
   margin: 0;
-  background: transparent;
 }
 
 body {
