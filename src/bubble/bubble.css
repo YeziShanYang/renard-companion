@@ -32,6 +32,11 @@
   --btn: #f1e2cc;
   --btn-hi: #f8ecdb;
   --code-bg: #f3eadf;
+  --hl-keyword: #9d3d6e;
+  --hl-string: #3b7a2a;
+  --hl-number: #a5520f;
+  --hl-title: #1f5f9e;
+  --hl-attr: #7a5a12;
   --notice: #fbe6d4;
   --drop: rgba(47, 47, 46, 0.28);
   --focus: #2b7a80;
@@ -63,6 +68,11 @@
   --btn: #3a312b;
   --btn-hi: #463b34;
   --code-bg: #1a1614;
+  --hl-keyword: #e48ab8;
+  --hl-string: #9fcf7a;
+  --hl-number: #f0a868;
+  --hl-title: #8cc4f0;
+  --hl-attr: #e3c26e;
   --notice: #3d2b20;
   --drop: rgba(0, 0, 0, 0.5);
   --focus: #6cc3c6;
@@ -394,9 +404,10 @@ body {
 .answer p,
 .answer ul,
 .answer ol,
-.answer pre,
+.answer .code-block,
 .answer blockquote,
-.answer .table-wrap {
+.answer .table-wrap,
+.answer .math-block {
   margin: 0 0 0.75em;
 }
 
@@ -444,10 +455,52 @@ body {
   font: 0.88em/1.4 var(--font-mono);
 }
 
-.answer pre {
-  padding: 10px 12px;
-  overflow-x: auto;
+/* A code block: a header with the language and a copy button, then the
+   code, which scrolls sideways rather than wrapping. */
+.answer .code-block {
   background: var(--code-bg);
+}
+
+.answer .code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 0 12px;
+  color: var(--muted);
+  font: var(--ui-size) / 1.2 var(--font-ui);
+}
+
+.answer .code-lang {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-transform: lowercase;
+}
+
+.answer .code-copy {
+  flex: none;
+  padding: 3px 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.answer .code-copy:hover,
+.answer .code-copy:focus-visible {
+  color: var(--text);
+}
+
+.answer .code-copy:focus-visible {
+  outline: 2px solid var(--focus);
+}
+
+.answer pre {
+  margin: 0;
+  padding: 6px 12px 10px;
+  overflow-x: auto;
   font: 13px/1.5 var(--font-mono);
 }
 
@@ -489,7 +542,109 @@ body {
 }
 
 .answer .table-wrap {
+  max-width: 100%;
   overflow-x: auto;
+}
+
+/* Task list items: a checkbox in place of the bullet. */
+.answer li.task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+
+.answer li.task > input {
+  margin: 0 0.45em 0 0;
+  vertical-align: -0.1em;
+  accent-color: var(--accent);
+}
+
+.answer li.task > p:first-of-type {
+  display: inline;
+}
+
+/* Math (KaTeX). Displayed formulas scroll sideways instead of overflowing
+   the panel; the source of one still streaming in, or of one KaTeX can't
+   parse, shows as code. */
+.answer .katex {
+  font-size: 1.1em;
+}
+
+.answer .math-display {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.answer .math-display .katex-display {
+  margin: 0.4em 0;
+}
+
+.answer .math-source {
+  font: 0.88em/1.4 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.answer .katex-error {
+  font-family: var(--font-mono);
+}
+
+/* Code colors (highlight.js classes), from the bubble's palette. */
+.answer .hljs-comment,
+.answer .hljs-quote {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.answer .hljs-keyword,
+.answer .hljs-selector-tag,
+.answer .hljs-built_in,
+.answer .hljs-type,
+.answer .hljs-doctag {
+  color: var(--hl-keyword);
+}
+
+.answer .hljs-string,
+.answer .hljs-regexp,
+.answer .hljs-addition,
+.answer .hljs-attribute,
+.answer .hljs-template-tag {
+  color: var(--hl-string);
+}
+
+.answer .hljs-number,
+.answer .hljs-literal,
+.answer .hljs-symbol,
+.answer .hljs-bullet,
+.answer .hljs-variable.language_ {
+  color: var(--hl-number);
+}
+
+.answer .hljs-title,
+.answer .hljs-section,
+.answer .hljs-name,
+.answer .hljs-selector-id,
+.answer .hljs-selector-class {
+  color: var(--hl-title);
+}
+
+.answer .hljs-attr,
+.answer .hljs-property,
+.answer .hljs-params,
+.answer .hljs-meta {
+  color: var(--hl-attr);
+}
+
+.answer .hljs-deletion {
+  color: var(--rust);
+}
+
+.answer .hljs-emphasis {
+  font-style: italic;
+}
+
+.answer .hljs-strong {
+  font-weight: 700;
 }
 
 .answer table {

@@ -389,9 +389,9 @@
       if (this.streaming) {
         // Put the cursor right after the last character: descend while the
         // last node is an element (list item, paragraph, code), but stop at
-        // tables and at elements followed by trailing text.
+        // tables, formulas, and elements followed by trailing text.
         let target = frag.lastElementChild;
-        while (target && target.lastElementChild && target.lastElementChild === target.lastChild && !/^(TABLE|DIV)$/.test(target.tagName)) {
+        while (target && target.lastElementChild && target.lastElementChild === target.lastChild && !/^(TABLE|DIV)$/.test(target.tagName) && !target.classList.contains('math')) {
           target = target.lastElementChild;
         }
         (target || frag).append(h('span', { class: 'stream-cursor', 'aria-hidden': 'true' }));

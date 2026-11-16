@@ -1,6 +1,8 @@
 // A small Markdown renderer for answers. parse() builds a plain tree (unit
 // tested in Node); render() turns it into DOM nodes. Model output never goes
-// through innerHTML, and links are limited to http(s) and mailto.
+// through innerHTML, and links are limited to http(s) and mailto. Math is
+// typeset with KaTeX and code colored with highlight.js where the page has
+// them (the bubble frame); elsewhere both show as plain text.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
 
@@ -10,12 +12,15 @@
   const QUOTE = /^\s{0,3}>/;
   const LIST = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
   const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  // Display math on its own lines: $$ … $$ or \[ … \].
+  const MATH_BLOCK = /^\s{0,3}(\$\$|\\\[)(.*)$/;
+  const TASK = /^\[([ xX])\]\s+(.*)$/;
 
   const isBlank = (l) => /^\s*$/.test(l);
   const lead = (l) => l.match(/^ */)[0].length;
 
   function startsBlock(line) {
-    return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line);
+    return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line) || MATH_BLOCK.test(line);
   }
 
   function splitRow(line) {
@@ -70,7 +75,10 @@
         item.push(l.trim()); // lazy continuation
         i++;
       }
-      node.items.push({ children: nested(item) });
+      // A task list item: "- [ ] to do" or "- [x] done".
+      const task = item[0].match(TASK);
+      if (task) item[0] = task[2];
+      node.items.push(task ? { task: task[1] !== ' ', children: nested(item) } : { children: nested(item) });
       // A blank line between sibling items keeps the list going.
       let j = i;
       while (j < lines.length && isBlank(lines[j])) j++;
@@ -116,9 +124,48 @@
           buf.push(lines[i].slice(Math.min(indent, lead(lines[i]))));
           i++;
         }
-        i++; // closing fence (or end of a still-streaming answer)
-        out.push({ type: 'code', lang: m[3] || '', text: buf.join('\n') });
+        // A fence still open is the end of an answer still streaming in.
+        const node = { type: 'code', lang: m[3] || '', text: buf.join('\n') };
+        if (i >= lines.length) node.open = true;
+        i++;
+        out.push(node);
         continue;
+      }
+
+      m = line.match(MATH_BLOCK);
+      if (m) {
+        const close = m[1] === '$$' ? '$$' : '\\]';
+        const first = m[2];
+        const at = first.indexOf(close);
+        // "$$ x $$ and more" is inline math inside a paragraph.
+        if (at === -1 || !first.slice(at + close.length).trim()) {
+          const buf = [];
+          let open = true;
+          if (at !== -1) {
+            buf.push(first.slice(0, at));
+            open = false;
+            i++;
+          } else {
+            buf.push(first);
+            i++;
+            while (i < lines.length) {
+              const end = lines[i].indexOf(close);
+              if (end !== -1) {
+                buf.push(lines[i].slice(0, end));
+                open = false;
+                i++;
+                break;
+              }
+              buf.push(lines[i]);
+              i++;
+            }
+          }
+          const tex = buf.join('\n').trim();
+          const node = { type: 'math', display: true, tex, raw: `${m[1]}${buf.join('\n')}${open ? '' : close}` };
+          if (open) node.open = true;
+          if (tex || open) out.push(node);
+          continue;
+        }
       }
 
       m = line.match(HEADING);
@@ -231,7 +278,30 @@
       const ch = src[i];
       const rest = src.slice(i);
 
-      if (ch === '\\' && /[\\`*_{}[\]()#+\-.!|~<>]/.test(src[i + 1] || '')) {
+      // Math: \( … \) inline, \[ … \] displayed.
+      if (ch === '\\' && (src[i + 1] === '(' || src[i + 1] === '[')) {
+        const close = src[i + 1] === '(' ? '\\)' : '\\]';
+        const end = src.indexOf(close, i + 2);
+        const tex = end === -1 ? '' : src.slice(i + 2, end).trim();
+        if (tex) {
+          flush();
+          out.push({ type: 'math', display: close === '\\]', tex, raw: src.slice(i, end + 2) });
+          i = end + 2;
+          continue;
+        }
+      }
+
+      if (ch === '$') {
+        const m = dollarMath(src, i);
+        if (m) {
+          flush();
+          out.push(m.node);
+          i = m.end;
+          continue;
+        }
+      }
+
+      if (ch === '\\' && /[\\`*_{}[\]()#+\-.!|~<>$]/.test(src[i + 1] || '')) {
         text += src[i + 1];
         i += 2;
         continue;
@@ -324,12 +394,143 @@
     return out;
   }
 
+  // $$ … $$ (displayed) or $ … $ (inline) starting at src[i]. A price is
+  // not math: as in Pandoc, an opening $ must be followed by a non-space and
+  // a closing $ must follow a non-space and not be followed by a digit, so
+  // "$5 and $10" stays text.
+  function dollarMath(src, i) {
+    if (src[i + 1] === '$') {
+      const end = src.indexOf('$$', i + 2);
+      const tex = end === -1 ? '' : src.slice(i + 2, end).trim();
+      return tex ? { node: { type: 'math', display: true, tex, raw: src.slice(i, end + 2) }, end: end + 2 } : null;
+    }
+    if (!src[i + 1] || /\s/.test(src[i + 1])) return null;
+    for (let j = i + 1; j < src.length; j++) {
+      if (src[j] === '\\') {
+        j++;
+        continue;
+      }
+      if (src[j] === '$') {
+        if (/\s/.test(src[j - 1]) || /\d/.test(src[j + 1] || '')) return null;
+        return { node: { type: 'math', display: false, tex: src.slice(i + 1, j), raw: src.slice(i, j + 1) }, end: j + 1 };
+      }
+    }
+    return null;
+  }
+
   function parse(markdown) {
     const lines = String(markdown).replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
     return parseBlocks(lines);
   }
 
   // ---- DOM rendering ------------------------------------------------------
+
+  // Math typeset by KaTeX. trust: false refuses the commands that add links,
+  // images or HTML attributes; with throwOnError: false a formula KaTeX can't
+  // parse shows as its source. Without KaTeX, or while a displayed formula is
+  // still streaming in, the source shows as typed.
+  // A streaming answer is rendered again many times a second; each formula
+  // is typeset once and copied after that.
+  const typeset = new Map();
+
+  function renderMath(n, parent) {
+    const key = `${n.display ? 'D' : 'I'}${n.tex}`;
+    const done = !n.open && typeset.get(key);
+    if (done) {
+      parent.append(done.cloneNode(true));
+      return;
+    }
+    const el = document.createElement('span');
+    el.className = n.display ? 'math math-display' : 'math';
+    const katex = globalThis.katex;
+    if (katex && !n.open) {
+      try {
+        katex.render(n.tex, el, {
+          displayMode: n.display,
+          throwOnError: false,
+          trust: false,
+          strict: 'ignore',
+          errorColor: 'currentColor',
+          maxSize: 20,
+          maxExpand: 500,
+        });
+        if (typeset.size > 300) typeset.clear();
+        typeset.set(key, el.cloneNode(true));
+        parent.append(el);
+        return;
+      } catch {
+        el.replaceChildren();
+      }
+    }
+    el.classList.add('math-source');
+    el.textContent = n.raw;
+    parent.append(el);
+  }
+
+  // highlight.js returns HTML. It is parsed in an inert document, and only its
+  // text and its "hljs-…" class spans are copied into the answer, so nothing
+  // else in that markup can reach the page. A block still streaming in stays
+  // plain until its fence closes.
+  function highlight(code, text, lang, open) {
+    const hljs = globalThis.hljs;
+    if (!open && hljs && lang && hljs.getLanguage(lang) && text.length <= 50000) {
+      try {
+        const html = hljs.highlight(text, { language: lang, ignoreIllegals: true }).value;
+        const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+        copySpans(doc.body.firstChild, code);
+        return;
+      } catch {
+        code.replaceChildren();
+      }
+    }
+    code.textContent = text;
+  }
+
+  function copySpans(from, to) {
+    for (const n of from.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        to.append(document.createTextNode(n.data));
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        const classes = [...n.classList].filter((c) => /^hljs-[\w-]+$/.test(c));
+        const span = n.tagName === 'SPAN' && classes.length ? document.createElement('span') : null;
+        if (span) span.className = classes.join(' ');
+        copySpans(n, span || to);
+        if (span) to.append(span);
+      }
+    }
+  }
+
+  function codeBlock(b) {
+    const el = document.createElement('div');
+    el.className = 'code-block';
+    const head = document.createElement('div');
+    head.className = 'code-head';
+    const label = document.createElement('span');
+    label.className = 'code-lang';
+    label.textContent = b.lang || 'code';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'code-copy';
+    copy.textContent = 'Copy';
+    copy.setAttribute('aria-label', `Copy ${b.lang || 'code'}`);
+    copy.addEventListener('click', () => {
+      navigator.clipboard.writeText(b.text).then(
+        () => {
+          copy.textContent = 'Copied';
+          setTimeout(() => (copy.textContent = 'Copy'), 1500);
+        },
+        () => {},
+      );
+    });
+    head.append(label, copy);
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    if (b.lang) pre.dataset.lang = b.lang;
+    highlight(code, b.text, b.lang, b.open);
+    pre.append(code);
+    el.append(head, pre);
+    return el;
+  }
 
   function renderInline(nodes, parent) {
     for (const n of nodes) {
@@ -339,6 +540,9 @@
           break;
         case 'br':
           parent.append(document.createElement('br'));
+          break;
+        case 'math':
+          renderMath(n, parent);
           break;
         case 'code': {
           const el = document.createElement('code');
@@ -386,14 +590,14 @@
         case 'hr':
           el = document.createElement('hr');
           break;
-        case 'code': {
-          el = document.createElement('pre');
-          const code = document.createElement('code');
-          if (b.lang) el.dataset.lang = b.lang;
-          code.textContent = b.text;
-          el.append(code);
+        case 'code':
+          el = codeBlock(b);
           break;
-        }
+        case 'math':
+          el = document.createElement('div');
+          el.className = 'math-block';
+          renderMath(b, el);
+          break;
         case 'quote':
           el = document.createElement('blockquote');
           renderBlocks(b.children, el);
@@ -404,6 +608,14 @@
           if (b.type === 'ol' && b.start !== 1) el.start = b.start;
           for (const item of b.items) {
             const li = document.createElement('li');
+            if (item.task !== undefined) {
+              li.className = 'task';
+              const box = document.createElement('input');
+              box.type = 'checkbox';
+              box.checked = item.task;
+              box.disabled = true;
+              li.append(box);
+            }
             renderBlocks(item.children, li);
             el.append(li);
           }

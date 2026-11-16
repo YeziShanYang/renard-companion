@@ -73,7 +73,8 @@ test('bare URLs become links without trailing punctuation', () => {
 
 test('fenced code keeps content and language, even unterminated', () => {
   assert.deepEqual(parse('```js\nconst a = 1;\n  b();\n```'), [{ type: 'code', lang: 'js', text: 'const a = 1;\n  b();' }]);
-  assert.deepEqual(parse('```\nstill streaming'), [{ type: 'code', lang: '', text: 'still streaming' }]);
+  // Still streaming: marked open, so it is colored only once it closes.
+  assert.deepEqual(parse('```\nstill streaming'), [{ type: 'code', lang: '', text: 'still streaming', open: true }]);
 });
 
 test('headings strip closing hashes only after a space', () => {
@@ -110,4 +111,47 @@ test('blockquotes and rules', () => {
   const blocks = parse('> quoted\n\n---');
   assert.equal(blocks[0].type, 'quote');
   assert.equal(blocks[1].type, 'hr');
+});
+
+const math = (tex, display, raw) => ({ type: 'math', display, tex, raw });
+
+test('inline math with $…$ and \(…\)', () => {
+  const [p] = parse('Euler: $e^{i\\pi}+1=0$ and \\(x^2\\).');
+  assert.deepEqual(p.children, [text('Euler: '), math('e^{i\\pi}+1=0', false, '$e^{i\\pi}+1=0$'), text(' and '), math('x^2', false, '\\(x^2\\)'), text('.')]);
+});
+
+test('prices are not math', () => {
+  for (const s of ['Costs $5 and $10 today.', 'From $5-$10 a month.', 'Pay $5,$10 or $20.', 'It is $ 5 here $', 'Only $5.']) {
+    assert.deepEqual(parse(s), [{ type: 'paragraph', children: [text(s)] }], s);
+  }
+  assert.deepEqual(parse('Escaped \\$x\\$ stays.')[0].children, [text('Escaped $x$ stays.')]);
+});
+
+test('display math on its own lines, with $$ or \[ \]', () => {
+  assert.deepEqual(parse('$$\n\\int_0^1 x\\,dx\n$$'), [math('\\int_0^1 x\\,dx', true, '$$\n\\int_0^1 x\\,dx\n$$')]);
+  assert.deepEqual(parse('\\[ a^2+b^2=c^2 \\]'), [math('a^2+b^2=c^2', true, '\\[ a^2+b^2=c^2 \\]')]);
+  // Inside a paragraph, $$…$$ is displayed in place.
+  assert.deepEqual(parse('so $$x=1$$ holds')[0].children, [text('so '), math('x=1', true, '$$x=1$$'), text(' holds')]);
+  // A paragraph ends where display math starts.
+  assert.equal(parse('Text\n$$\ny\n$$')[1].type, 'math');
+});
+
+test('display math still streaming in stays open, shown as typed', () => {
+  assert.deepEqual(parse('$$\n\\frac{1}{2'), [{ type: 'math', display: true, tex: '\\frac{1}{2', raw: '$$\n\\frac{1}{2', open: true }]);
+  // An unclosed inline $ is just text until it closes.
+  assert.deepEqual(parse('so $x^2 + ')[0].children, [text('so $x^2 + ')]);
+});
+
+test('math inside code is left alone', () => {
+  assert.deepEqual(parse('`$x$`')[0].children, [{ type: 'code', text: '$x$' }]);
+  assert.deepEqual(parse('```\n$$ x $$\n```'), [{ type: 'code', lang: '', text: '$$ x $$' }]);
+});
+
+test('task lists', () => {
+  const [list] = parse('- [ ] todo\n- [x] done\n  - [X] nested');
+  assert.equal(list.items[0].task, false);
+  assert.equal(list.items[1].task, true);
+  assert.deepEqual(list.items[0].children, [{ type: 'paragraph', children: [text('todo')] }]);
+  assert.equal(list.items[1].children[1].items[0].task, true);
+  assert.equal(parse('- plain')[0].items[0].task, undefined);
 });
