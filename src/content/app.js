@@ -164,6 +164,9 @@
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
       for (const stray of document.querySelectorAll(R.HOST_SELECTOR)) if (stray !== this.host) stray.remove();
+      // The page's root element at mount: when the page swaps it (a
+      // document.open() rewrite, or a new <html>), Renard mounts afresh.
+      this.page = document.documentElement;
       document.documentElement.append(this.host);
       // The element shows only while content/host.css is on the page. If a
       // page got the script without the sheet, Renard shows anyway, but
@@ -194,6 +197,7 @@
         window.removeEventListener('scroll', this.onScroll, { capture: true });
         window.removeEventListener('keydown', this.onKeyDown, true);
         this.colorScheme.removeEventListener('change', this.onSchemeChange);
+        if (this.raiseAfterFullscreen) document.removeEventListener('fullscreenchange', this.raiseAfterFullscreen);
         this.fox.cancelMotion();
         this.fox.sprite.stop();
         this.blipper.close();
@@ -211,15 +215,31 @@
 
     // Shows Renard's root in the browser's top layer, where CSS on the
     // page's <html> (a transform, filter, contain or will-change) can't make
-    // it scroll away with the page. Removing the element from the page
-    // closes the popover, so this runs again whenever it is put back.
-    // Without popover support the root stays at the host's z-index.
+    // it scroll away with the page. Removing or moving the element closes
+    // the popover, and a closed popover isn't shown at all, so it's shown
+    // again as soon as it closes while the element is on the page, and
+    // whenever the element is put back. Without popover support the root
+    // stays at the host's z-index.
     raise() {
       const root = this.root;
-      if (typeof root.showPopover !== 'function' || !this.host.isConnected) return;
+      if (typeof root.showPopover !== 'function' || !this.host.isConnected || this.unmounted) return;
+      if (!this.onPopoverToggle) {
+        this.onPopoverToggle = (e) => {
+          if (e.newState === 'closed') this.raise();
+        };
+        root.addEventListener('toggle', this.onPopoverToggle);
+      }
       // Shown now, it would go above a video that's full screen.
       if (document.fullscreenElement) {
-        document.addEventListener('fullscreenchange', () => this.raise(), { once: true });
+        if (!this.raiseAfterFullscreen) {
+          this.raiseAfterFullscreen = () => {
+            if (document.fullscreenElement) return;
+            document.removeEventListener('fullscreenchange', this.raiseAfterFullscreen);
+            this.raiseAfterFullscreen = null;
+            this.raise();
+          };
+          document.addEventListener('fullscreenchange', this.raiseAfterFullscreen);
+        }
         return;
       }
       try {
@@ -228,6 +248,11 @@
       } catch {
         root.removeAttribute('popover');
       }
+    }
+
+    // The popover was closed without a toggle event reaching Renard.
+    lowered() {
+      return this.root.hasAttribute('popover') && !this.root.matches(':popover-open');
     }
 
     // CSS zoom on the page's <html> would scale Renard too, and put the fox
@@ -356,8 +381,9 @@
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
         if (this.orphaned()) return;
-        // A page that replaced <html> itself took Renard with it.
+        if (this.pageReplaced()) return;
         if (!this.host.isConnected) this.restoreHost();
+        else if (this.lowered()) this.raise();
         // A stylesheet the page adds later can zoom <html> without any
         // change the observers see.
         this.fitZoom();
@@ -391,12 +417,27 @@
       this.onSchemeChange = () => this.updateTheme();
       this.colorScheme.addEventListener('change', this.onSchemeChange);
 
-      // Put Renard back if the page replaces the root element's children.
+      // Put Renard back if the page replaces the root element's children,
+      // and show it again if the page moved it.
       const hostObserver = new MutationObserver(() => {
+        if (this.pageReplaced()) return;
         if (!this.host.isConnected) this.restoreHost();
+        else if (this.lowered()) this.raise();
       });
       hostObserver.observe(document.documentElement, { childList: true });
       this.observers.push(hostObserver);
+    }
+
+    // The page rewrote itself (document.open(), which also drops every event
+    // listener on the page, Renard's included) or replaced its <html> (out
+    // of the observers' reach). Putting the same element back would leave a
+    // fox that can't be clicked, so main.js mounts a new one.
+    pageReplaced() {
+      const html = document.documentElement;
+      if (!html || html === this.page) return false;
+      if (R.remount) R.remount();
+      else this.unmount();
+      return true;
     }
 
     // Puts Renard back on the page after the page removed it, at most five
@@ -415,7 +456,8 @@
       this.restores.push(now);
       this.timers.restore = setTimeout(() => {
         this.timers.restore = 0;
-        if (this.unmounted || this.host.isConnected) return;
+        // Mid-rewrite, the page can have no root element for a moment.
+        if (this.unmounted || this.host.isConnected || !document.documentElement) return;
         document.documentElement.append(this.host);
         this.raise();
       }, 50);

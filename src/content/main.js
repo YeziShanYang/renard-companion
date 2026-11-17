@@ -33,7 +33,7 @@
   const REPLACE_EVENT = 'renard-companion:replace';
   document.dispatchEvent(new Event(REPLACE_EVENT));
   for (const el of document.querySelectorAll(R.HOST_SELECTOR)) el.remove();
-  document.addEventListener(REPLACE_EVENT, () => {
+  const onReplace = () => {
     // Only a copy whose extension context is gone steps aside, so the page
     // itself can't dispatch this event to switch a live Renard off.
     if (R.contextAlive()) return;
@@ -42,7 +42,46 @@
       app.unmount();
       app = null;
     }
-  });
+  };
+  // A page restored from the back/forward cache missed the refreshes sent
+  // while it was away (settings changed, a model downloaded, Renard sent
+  // home), so it asks for the current state.
+  const onPageShow = (e) => {
+    if (e.isTrusted && e.persisted && R.contextAlive()) sync().catch(() => {});
+  };
+  // A page that rewrites itself (document.open) erases these, so they're
+  // added again when Renard mounts afresh. Adding one twice does nothing.
+  const listen = () => {
+    document.addEventListener(REPLACE_EVENT, onReplace);
+    addEventListener('pageshow', onPageShow);
+  };
+  listen();
+
+  // The page rewrote itself or replaced its <html>: the fox lost its
+  // listeners or its observers, so a new one is mounted in its place, at
+  // most five times in ten seconds. A page that keeps rewriting itself gets
+  // its next fox once the ten seconds are up.
+  let remounts = [];
+  let remountTimer = 0;
+  R.remount = function () {
+    if (retired) return;
+    clearTimeout(remountTimer);
+    const now = performance.now();
+    remounts = remounts.filter((t) => now - t < 10000);
+    if (remounts.length >= 5) {
+      remountTimer = setTimeout(R.remount, 10000 - (now - remounts[0]) + 50);
+      return;
+    }
+    remounts.push(now);
+    if (app) {
+      app.unmount();
+      app = null;
+    }
+    // The page's fonts may have gone with the old document.
+    R.fontsLoaded = false;
+    listen();
+    sync().catch(() => {});
+  };
 
   // Brings the page in line with settings: mount, update, or remove Renard.
   async function syncOnce() {
@@ -101,13 +140,6 @@
     if (!msg) return;
     if (msg.type === 'renard:refresh') sync().catch(() => {});
     else if (msg.type === 'renard:command' && app) app.command(msg.command);
-  });
-
-  // A page restored from the back/forward cache missed the refreshes sent
-  // while it was away (settings changed, a model downloaded, Renard sent
-  // home), so it asks for the current state.
-  addEventListener('pageshow', (e) => {
-    if (e.isTrusted && e.persisted && R.contextAlive()) sync().catch(() => {});
   });
 
   sync().catch((err) => console.warn('[Renard]', err));

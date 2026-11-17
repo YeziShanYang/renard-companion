@@ -84,47 +84,47 @@
     return { ...mods, code };
   };
 
-  // code -> character for the current keyboard layout, where the browser
+  // The current keyboard layout, code -> character, where the browser
   // reports it (Chrome's Keyboard API, in a top-level page or a frame
-  // allowed keyboard-map). null elsewhere.
-  let layout = null;
-  let watching = false;
-  let loadedAt = 0;
+  // allowed keyboard-map), or null. Kept on R, so a second copy of this
+  // file in the same page (injected again) shares it.
+  const keyboard = (R.keyboard = R.keyboard || { layout: null, loadedAt: 0 });
   async function loadLayout() {
-    loadedAt = Date.now();
+    keyboard.loadedAt = Date.now();
     try {
-      layout = new Map(await globalThis.navigator.keyboard.getLayoutMap());
+      keyboard.layout = new Map(await globalThis.navigator.keyboard.getLayoutMap());
     } catch {
-      layout = null;
+      keyboard.layout = null;
     }
   }
   // Reads the layout now and again later. Chrome doesn't announce a
   // layout switch, so it's read again when the page gets focus back, and
   // at most once a second on a key pressed with a modifier, which then
-  // applies from the next shortcut on.
+  // applies from the next shortcut on. Called on every mount: a page that
+  // rewrites itself (document.open) drops the listeners, and adding the
+  // same listener twice does nothing.
   R.watchKeyboardLayout = function () {
-    if (watching || !(globalThis.navigator && navigator.keyboard)) return;
-    watching = true;
-    loadLayout();
-    addEventListener('focus', loadLayout);
-    addEventListener(
-      'keydown',
-      (e) => {
-        if ((e.altKey || e.ctrlKey || e.metaKey) && Date.now() - loadedAt > 1000) loadLayout();
-      },
-      true,
-    );
+    if (!(globalThis.navigator && navigator.keyboard)) return;
+    if (!keyboard.onFocus) {
+      keyboard.onFocus = () => loadLayout();
+      keyboard.onKey = (e) => {
+        if ((e.altKey || e.ctrlKey || e.metaKey) && Date.now() - keyboard.loadedAt > 1000) loadLayout();
+      };
+      loadLayout();
+    }
+    addEventListener('focus', keyboard.onFocus);
+    addEventListener('keydown', keyboard.onKey, true);
   };
   // For tests: a Map or [code, character] pairs, or null.
   R.setKeyboardLayout = function (map) {
-    layout = map ? new Map(map) : null;
+    keyboard.layout = map ? new Map(map) : null;
   };
 
   // The physical key that types this letter or digit in the current layout.
   function physicalCode(char, fallback) {
-    if (layout) {
+    if (keyboard.layout) {
       const lower = char.toLowerCase();
-      for (const [code, value] of layout) if (value === lower) return code;
+      for (const [code, value] of keyboard.layout) if (value === lower) return code;
     }
     return fallback;
   }
