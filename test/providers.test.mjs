@@ -455,3 +455,36 @@ test('error text never shows as [object Object], and a Gemini error array is rea
   globalThis.fetch = async () => json(400, [{ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } }]);
   await assert.rejects(streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-x' }, system: '', user: 'q', onDelta() {} }), { kind: 'keyInvalid' });
 });
+
+test('a provider that stalls before or during an answer times out with an error', async () => {
+  const { TIMEOUTS } = await import('../src/shared/providers.js');
+  const saved = { ...TIMEOUTS };
+  Object.assign(TIMEOUTS, { firstByteMs: 50, idleMs: 50 });
+  try {
+    // No response at all.
+    globalThis.fetch = (_url, init) =>
+      new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+    await assert.rejects(streamAnswer('anthropic', { apiKey: 'k', model: { id: 'claude-x' }, system: '', user: 'q', onDelta() {} }), (e) => e.kind === 'network' && /respond/.test(e.message));
+    // Headers and one piece, then nothing.
+    globalThis.fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(c) {
+            c.enqueue(new TextEncoder().encode('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hal"}}\n\n'));
+          },
+        }),
+        { status: 200 },
+      );
+    let out = '';
+    await assert.rejects(streamAnswer('anthropic', { apiKey: 'k', model: { id: 'claude-x' }, system: '', user: 'q', onDelta: (t) => (out += t) }), (e) => e.kind === 'network' && /stopped arriving/.test(e.message));
+    assert.equal(out, 'Hal');
+    // The user's own Stop is still an abort, not a timeout.
+    const ctl = new AbortController();
+    globalThis.fetch = (_url, init) =>
+      new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+    setTimeout(() => ctl.abort(), 10);
+    await assert.rejects(streamAnswer('anthropic', { apiKey: 'k', model: { id: 'claude-x' }, system: '', user: 'q', signal: ctl.signal, onDelta() {} }), { kind: 'aborted' });
+  } finally {
+    Object.assign(TIMEOUTS, saved);
+  }
+});

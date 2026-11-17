@@ -28,6 +28,11 @@ const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 const MAX_OUTPUT_TOKENS = 16000;
 
+// How long to wait for a provider: for the response to start, and between
+// two pieces of a streamed answer. A stalled connection otherwise leaves the
+// bubble thinking forever. (Exported so tests can shorten them.)
+export const TIMEOUTS = { firstByteMs: 60000, idleMs: 90000 };
+
 export class ProviderError extends Error {
   // kind: keyMissing | keyInvalid | modelUnavailable | imageUnsupported
   //       | rateLimited | network | permission | refused | aborted | unknown
@@ -141,7 +146,20 @@ async function* readEvents(response) {
   const decoder = new TextDecoder();
   const parser = new SSEParser();
   for (;;) {
-    const { value, done } = await reader.read();
+    let timer;
+    const stalled = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new ProviderError('network', 'The answer stopped arriving. Try again.')), TIMEOUTS.idleMs);
+    });
+    let chunk;
+    try {
+      chunk = await Promise.race([reader.read(), stalled]);
+    } catch (err) {
+      reader.cancel().catch(() => {});
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+    const { value, done } = chunk;
     if (done) break;
     yield* parser.push(decoder.decode(value, { stream: true }));
   }
@@ -180,11 +198,19 @@ function errorOf(body) {
 }
 
 async function request(url, init) {
+  const late = new AbortController();
+  const timer = setTimeout(() => late.abort(), TIMEOUTS.firstByteMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, late.signal]) : late.signal;
   let res;
   try {
-    res = await fetch(url, init);
+    res = await fetch(url, { ...init, signal });
   } catch (err) {
+    if (late.signal.aborted && !(init.signal && init.signal.aborted)) {
+      throw new ProviderError('network', "The provider didn't respond within a minute. Try again.");
+    }
     throw toProviderError(err);
+  } finally {
+    clearTimeout(timer);
   }
   if (!res.ok) {
     let body = null;
