@@ -19,6 +19,24 @@ function sameShape(def, val) {
 
 const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
 
+// A stored model record as listModels makes it, or null. Its fields go
+// straight into requests (model id, max_tokens).
+function cleanModel(m) {
+  if (!isPlainObject(m) || typeof m.id !== 'string' || !m.id || m.id.length > 200) return null;
+  return {
+    id: m.id,
+    name: typeof m.name === 'string' && m.name ? m.name.slice(0, 200) : m.id,
+    maxTokens: Number.isInteger(m.maxTokens) && m.maxTokens > 0 ? m.maxTokens : null,
+    effortLow: m.effortLow === true,
+  };
+}
+
+// A fox position: which edge, and how far down it (0 to 1).
+function cleanPosition(p) {
+  if (!isPlainObject(p) || (p.edge !== 'left' && p.edge !== 'right') || !Number.isFinite(p.y)) return null;
+  return { edge: p.edge, y: Math.min(1, Math.max(0, p.y)) };
+}
+
 // A stored value can be anything (an older version, a bug, or someone
 // editing extension storage by hand), so each one is checked against the
 // shape of its default, entry by entry. Anything that doesn't fit falls back
@@ -38,6 +56,16 @@ export function cleanSetting(key, val) {
     // still be objects.
     if ((!known || def[k] === null) && v !== null && !isPlainObject(v) && key !== 'apiKeys') continue;
     out[k] = v;
+  }
+  if (key === 'models') {
+    for (const k of Object.keys(out)) out[k] = cleanModel(out[k]);
+  }
+  if (key === 'positions') {
+    for (const [k, p] of Object.entries(out)) {
+      const clean = cleanPosition(p);
+      if (clean) out[k] = clean;
+      else delete out[k];
+    }
   }
   if (key === 'localModel') {
     if (!R.own(R.LOCAL_MODELS, out.key)) out.key = def.key;

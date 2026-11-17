@@ -56,21 +56,22 @@ function loadAssets() {
 // ---------------------------------------------------------------------------
 // Public (key-free) state for a site.
 
-// The site a content-script message comes from. An added website is known by
-// the sender's own address, not by anything the page's script claims.
+// The site a content-script message comes from. The sender's own address
+// decides it: an added website is known by that address, and claude.ai or
+// ChatGPT only from a page on that site.
 function siteFor(msg, sender) {
+  let host = '';
+  try {
+    host = new URL(sender.url).hostname;
+  } catch {
+    // no usable sender address
+  }
   if (msg.site === 'web') {
-    let host = '';
-    try {
-      host = new URL(sender.url).hostname;
-    } catch {
-      // no usable sender address
-    }
     if (!R.isWebHost(host)) throw new Error('Unknown site');
     return R.webSite(host);
   }
   const site = R.own(R.SITES, msg.site);
-  if (!site) throw new Error('Unknown site');
+  if (!site || R.siteForHost(host) !== site) throw new Error('Unknown site');
   return site;
 }
 
@@ -288,7 +289,7 @@ const handlers = {
 
   // From the toolbar popup or settings only, never from a page.
   'renard:addSite': async (msg, sender) => {
-    if (!fromExtensionPage(sender)) throw new Error('Not allowed');
+    if (!fromPopupOrSettings(sender)) throw new Error('Not allowed');
     return addSite(msg.host);
   },
 
@@ -304,13 +305,13 @@ const handlers = {
 
   // claude.ai or ChatGPT switched on or off from the popup.
   'renard:setSite': async (msg, sender) => {
-    if (!fromExtensionPage(sender) || !R.own(R.SITES, msg.id)) throw new Error('Not allowed');
+    if (!fromPopupOrSettings(sender) || !R.own(R.SITES, msg.id)) throw new Error('Not allowed');
     await update('sites', (sites) => ({ ...sites, [msg.id]: Boolean(msg.on) }));
     return { ok: true };
   },
 
   'renard:removeSite': async (msg, sender) => {
-    if (!fromExtensionPage(sender)) throw new Error('Not allowed');
+    if (!fromPopupOrSettings(sender)) throw new Error('Not allowed');
     return removeSite(msg.host);
   },
 
@@ -597,8 +598,11 @@ ext.runtime.onConnect.addListener((port) => {
     open = false;
     controller.abort();
   });
+  let asked = false;
   port.onMessage.addListener((msg) => {
-    if (!msg || msg.type !== 'ask') return;
+    // One question per port: a second would stream into the same answer.
+    if (!msg || msg.type !== 'ask' || asked) return;
+    asked = true;
     answer(msg, post, controller.signal).then(
       (result) => post({ type: 'done', limited: Boolean(result && result.stopReason === 'max_tokens') }),
       (err) => {
@@ -675,6 +679,13 @@ function fromExtensionPage(sender) {
 
 function fromSettings(sender) {
   return typeof sender.url === 'string' && sender.url.startsWith(ext.runtime.getURL('options/'));
+}
+
+// The toolbar popup or the settings page. The bubble frame is an extension
+// page too, but any website can embed it, so it can do only what a content
+// script can.
+function fromPopupOrSettings(sender) {
+  return fromSettings(sender) || (typeof sender.url === 'string' && sender.url.startsWith(ext.runtime.getURL('popup/')));
 }
 
 // Adds a website the user granted access to and brings Renard to its open

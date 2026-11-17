@@ -71,3 +71,16 @@ test('settings saved by Renard load back unchanged after a restart', () => {
   assert.equal(R.localReady(lm, R.LOCAL_MODELS['gemma-4-e2b']), null);
   assert.equal(R.localReady({ ready: { 'gemma-3-1b': { ...lm.ready['gemma-3-1b'], revision: 'older' } } }, gemma), null, 'an older download');
 });
+
+test('stored model records and fox positions are checked before use', () => {
+  const models = cleanSetting('models', {
+    anthropic: { id: 42, maxTokens: -5 },
+    openai: { id: 'gpt-5', name: 'GPT-5', maxTokens: true, effortLow: 'yes' },
+    gemini: { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', maxTokens: 65536, effortLow: true },
+  });
+  assert.equal(models.anthropic, null);
+  assert.deepEqual(models.openai, { id: 'gpt-5', name: 'GPT-5', maxTokens: null, effortLow: false });
+  assert.deepEqual(models.gemini, { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', maxTokens: 65536, effortLow: true });
+  const positions = cleanSetting('positions', { claude: { edge: 'left', y: 3 }, chatgpt: { edge: 'top', y: 0.5 }, 'web:a.com': { edge: 'right', y: NaN } });
+  assert.deepEqual(positions, { claude: { edge: 'left', y: 1 } });
+});
