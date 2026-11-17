@@ -2,13 +2,15 @@
 // site in the current tab, and a way into settings. It reads only the
 // settings it shows, never the API keys.
 import '../shared/constants.js';
-import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
+import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn } from '../shared/settings.js';
 
 const R = globalThis.Renard;
 const $ = (id) => document.getElementById(id);
-const KEYS = ['spawned', 'provider', 'sites', 'otherSites'];
+const KEYS = ['spawned', 'provider', 'sites', 'otherSites', 'allSites', 'skippedSites'];
 
 let tab = null; // { id, host, site } for the active tab
+// Every website is on and allowed: this site's switch only skips it.
+let everywhere = false;
 
 async function send(type, payload) {
   const res = await ext.runtime.sendMessage({ type, ...payload });
@@ -31,12 +33,6 @@ async function activeTab() {
   }
 }
 
-async function siteIsOn(s, site) {
-  if (!site) return false;
-  const listed = site.generic ? s.otherSites.includes(site.name) : s.sites[site.id] !== false;
-  return listed && (await hasOrigins(site.origins));
-}
-
 function note(text) {
   $('note').textContent = text || '';
   $('note').hidden = !text;
@@ -48,6 +44,7 @@ async function render() {
   const site = tab && tab.site;
   const spawned = s.spawned !== false;
   const on = await siteIsOn(s, site);
+  everywhere = s.allSites && (await hasOrigins([R.ALL_WEB]));
   $('spawned').checked = spawned;
 
   $('site-row').hidden = !site;
@@ -56,7 +53,9 @@ async function render() {
     $('site-on').checked = on;
   }
 
-  const listed = site && (site.generic ? s.otherSites.includes(site.name) : s.sites[site.id] !== false);
+  let listed = false;
+  if (site && !site.generic) listed = s.sites[site.id] !== false;
+  else if (site) listed = s.allSites ? !s.skippedSites.includes(site.name) : s.otherSites.includes(site.name);
   let status;
   if (!spawned) status = 'Napping at home. Flip the switch to bring me out!';
   else if (on) status = 'Out exploring this page!';
@@ -91,6 +90,12 @@ $('site-on').addEventListener('click', (e) => {
     // by the background script on top of the stored value.
     send('renard:setSite', { id: site.id, on }).then(render, render);
     if (on) ext.permissions.request({ origins: site.origins }).then(render, render);
+    return;
+  }
+
+  // On every website, this switch leaves the site out, or brings it back.
+  if (everywhere) {
+    send('renard:skipSite', { host: site.name, skip: !on }).then(render, render);
     return;
   }
 

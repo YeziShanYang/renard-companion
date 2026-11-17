@@ -45,7 +45,7 @@ export function cleanSetting(key, val) {
   const def = R.DEFAULTS[key];
   if (val === undefined || val === null || !sameShape(def, val)) return structuredClone(def);
   if (key === 'provider') return R.own(R.PROVIDERS, val) ? val : def;
-  if (key === 'otherSites') return [...new Set(val.filter((h) => R.isWebHost(h)))];
+  if (key === 'otherSites' || key === 'skippedSites') return [...new Set(val.filter((h) => R.isWebHost(h)))];
   if (!isPlainObject(def)) return val;
   const out = structuredClone(def);
   for (const [k, v] of Object.entries(val)) {
@@ -93,6 +93,20 @@ export async function hasOrigins(origins) {
   } catch {
     return false;
   }
+}
+
+// Whether Renard runs on a site: it's turned on in Renard, and the browser
+// lets Renard in. Firefox lets users take that access away (and doesn't
+// grant it on every install). s needs sites, otherSites, allSites and
+// skippedSites.
+export async function siteIsOn(s, site) {
+  if (!site) return false;
+  if (!site.generic) return s.sites[site.id] !== false && (await hasOrigins(site.origins));
+  if (s.allSites) {
+    if (s.skippedSites.includes(site.name)) return false;
+    return (await hasOrigins([R.ALL_WEB])) || (await hasOrigins(site.origins));
+  }
+  return s.otherSites.includes(site.name) && (await hasOrigins(site.origins));
 }
 
 // Origins Renard needs for the current settings: every enabled site plus the

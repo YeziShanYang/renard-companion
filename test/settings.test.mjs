@@ -57,6 +57,8 @@ test('settings saved by Renard load back unchanged after a restart', () => {
     models: { anthropic: null, openai: { id: 'gpt-test', name: 'GPT Test', maxTokens: 1000, effortLow: true }, gemini: null },
     sites: { claude: false, chatgpt: true },
     otherSites: ['en.wikipedia.org'],
+    allSites: true,
+    skippedSites: ['mail.example.com'],
     prefs: { readChat: false, readableText: true, sound: true },
     bubble: { width: 640, height: 400, expanded: true },
     // The other model selected, with Gemma 3 1B downloaded (what a finished
@@ -70,6 +72,11 @@ test('settings saved by Renard load back unchanged after a restart', () => {
   assert.ok(R.localReady(lm, gemma));
   assert.equal(R.localReady(lm, R.LOCAL_MODELS['gemma-4-e2b']), null);
   assert.equal(R.localReady({ ready: { 'gemma-3-1b': { ...lm.ready['gemma-3-1b'], revision: 'older' } } }, gemma), null, 'an older download');
+});
+
+test('skipped websites keep only host names Renard could visit', () => {
+  assert.deepEqual(cleanSetting('skippedSites', ['a.com', 'claude.ai', 'api.openai.com', 'a.com', 'not a host', 7]), ['a.com']);
+  assert.equal(cleanSetting('allSites', 'yes'), false);
 });
 
 test('stored model records and fox positions are checked before use', () => {

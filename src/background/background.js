@@ -3,7 +3,7 @@
 // streaming port, and only ever receive non-secret state.
 import '../shared/constants.js';
 import '../shared/image.js';
-import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
+import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
 import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter, clipStart } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
@@ -79,10 +79,7 @@ function siteFor(msg, sender) {
 async function publicState(site, { tabId, mount = false } = {}) {
   const s = await loadSettings();
   const key = site.key || site.id;
-  // On only while the browser lets Renard into the site, too: Firefox lets
-  // users take that access away (and doesn't grant it on every install).
-  const listed = site.generic ? s.otherSites.includes(site.name) : s.sites[site.id] !== false;
-  const on = listed && (await hasOrigins(site.origins));
+  const on = await siteIsOn(s, site);
   const provider = R.PROVIDERS[s.provider] || R.PROVIDERS.anthropic;
   const local = provider.id === 'local' ? R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'] : null;
   const model = local || s.models[provider.id];
@@ -320,6 +317,29 @@ const handlers = {
   'renard:removeSite': async (msg, sender) => {
     if (!fromPopupOrSettings(sender)) throw new Error('Not allowed');
     return removeSite(msg.host);
+  },
+
+  // Every website on or off, from settings, which asks the browser for
+  // access to all secure websites first.
+  'renard:setAllSites': async (msg, sender) => {
+    if (!fromSettings(sender)) throw new Error('Not allowed');
+    return setAllSites(msg.on === true);
+  },
+
+  // A website turned off, or back on, from the toolbar popup while Renard
+  // is on every website.
+  'renard:skipSite': async (msg, sender) => {
+    if (!fromPopupOrSettings(sender) || !R.isWebHost(msg.host)) throw new Error('Not allowed');
+    const skip = msg.skip === true;
+    await update('skippedSites', (list) => {
+      if (list.includes(msg.host) === skip) return undefined;
+      return skip ? [...list, msg.host] : list.filter((h) => h !== msg.host);
+    });
+    // A site added on its own and then turned off stays off when Every
+    // website is turned off later. Only Renard's list changes, not the
+    // browser's access.
+    if (skip) await update('otherSites', (list) => (list.includes(msg.host) ? list.filter((h) => h !== msg.host) : undefined));
+    return { host: msg.host, skipped: skip };
   },
 
   'renard:openOptions': async () => {
@@ -743,20 +763,31 @@ async function grantedOtherSites() {
   return out;
 }
 
+// Every website is on, and the browser lets Renard into all of them.
+async function everywhere() {
+  const { allSites } = await loadSettings(['allSites']);
+  return allSites && (await hasOrigins([R.ALL_WEB]));
+}
+
 function syncSiteScripts() {
   siteScripts = siteScripts
     .then(async () => {
-      const matches = (await grantedOtherSites()).map(R.originFor).sort();
+      const all = await everywhere();
+      const matches = all ? [R.ALL_WEB] : (await grantedOtherSites()).map(R.originFor).sort();
+      // claude.ai and ChatGPT have the manifest's content script.
+      const excludeMatches = all ? Object.values(R.SITES).flatMap((site) => site.origins).sort() : [];
       const js = contentScriptFiles();
       const css = contentScriptCss();
       const same = (a, b) => [...(a || [])].map(extensionPath).sort().join() === [...b].sort().join();
       const [existing] = await ext.scripting.getRegisteredContentScripts({ ids: [SITE_SCRIPTS] });
       // An earlier version's registration (other files, or none of the
       // stylesheet) is replaced too.
-      if (existing && same(existing.matches, matches) && same(existing.js, js) && same(existing.css, css)) return;
+      if (existing && same(existing.matches, matches) && same(existing.excludeMatches, excludeMatches) && same(existing.js, js) && same(existing.css, css)) return;
       if (existing) await ext.scripting.unregisterContentScripts({ ids: [SITE_SCRIPTS] });
       if (!matches.length) return;
-      await ext.scripting.registerContentScripts([{ id: SITE_SCRIPTS, matches, js, css, runAt: 'document_idle' }]);
+      const script = { id: SITE_SCRIPTS, matches, js, css, runAt: 'document_idle' };
+      if (excludeMatches.length) script.excludeMatches = excludeMatches;
+      await ext.scripting.registerContentScripts([script]);
     })
     .catch((err) => console.warn('[Renard] site scripts:', err));
   return siteScripts;
@@ -792,6 +823,8 @@ async function addSiteOnce(host) {
   const origin = R.originFor(host);
   if (!(await hasOrigins([origin]))) throw new Error(`Renard needs access to ${host} first.`);
   await update('otherSites', (otherSites) => (otherSites.includes(host) ? undefined : [...otherSites, host]));
+  // Added again after being left out of Every website: no longer left out.
+  await update('skippedSites', (list) => (list.includes(host) ? list.filter((h) => h !== host) : undefined));
   await syncSiteScripts();
   let tabs = [];
   try {
@@ -808,6 +841,50 @@ async function removeSite(host) {
   await update('otherSites', (otherSites) => (otherSites.includes(host) ? otherSites.filter((h) => h !== host) : undefined));
   if (R.isWebHost(host)) await ext.permissions.remove({ origins: [R.originFor(host)] }).catch(() => {});
   return { removed: host };
+}
+
+// Every website on: Renard's script goes on every secure page, including
+// the tabs already open. Off: it's back to the sites added one at a time.
+// Firefox also gets the access to all websites back. Chrome would take
+// removing it as withholding every https site inside it, claude.ai,
+// ChatGPT, the AI providers' APIs and each added site included, so there
+// the access stays until the user removes it and the setting alone decides.
+const GIVES_BACK_ALL_WEB = typeof ext.runtime.getBrowserInfo === 'function';
+async function setAllSites(on) {
+  if (on && !(await hasOrigins([R.ALL_WEB]))) throw new Error('Renard needs access to all websites first.');
+  await update('allSites', (was) => (was === on ? undefined : on));
+  await syncSiteScripts();
+  if (on) await injectWebTabs();
+  else if (GIVES_BACK_ALL_WEB) await ext.permissions.remove({ origins: [R.ALL_WEB] }).catch(() => {});
+  return { allSites: on };
+}
+
+async function injectWebTabs() {
+  let tabs = [];
+  try {
+    tabs = await ext.tabs.query({ url: R.ALL_WEB });
+  } catch {
+    return;
+  }
+  const { skippedSites } = await loadSettings(['skippedSites']);
+  for (const t of tabs) {
+    let host = '';
+    try {
+      host = new URL(t.url).hostname;
+    } catch {
+      continue;
+    }
+    if (R.isWebHost(host) && !skippedSites.includes(host)) await injectRenard(t.id).catch(() => {});
+  }
+}
+
+// The browser took back the access to all websites (from its own
+// extension settings, say): Every website turns off, as the settings page
+// then shows.
+async function pruneAllSites() {
+  if ((await loadSettings(['allSites'])).allSites && !(await hasOrigins([R.ALL_WEB]))) {
+    await update('allSites', () => false);
+  }
 }
 
 // A single website granted from the popup's switch (or the browser's own
@@ -844,11 +921,11 @@ async function updateBadge() {
 
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'otherSites', 'prefs', 'localModel'].some((k) => k in changes)) {
+  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'otherSites', 'allSites', 'skippedSites', 'prefs', 'localModel'].some((k) => k in changes)) {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }
-  if ('otherSites' in changes) syncSiteScripts();
+  if ('otherSites' in changes || 'allSites' in changes) syncSiteScripts();
 });
 
 ext.permissions.onAdded.addListener((permissions) => {
@@ -863,6 +940,7 @@ ext.permissions.onRemoved.addListener(() => {
   updateBadge().catch(() => {});
   broadcastRefresh();
   pruneOtherSites()
+    .then(() => pruneAllSites())
     .then(() => syncSiteScripts())
     .catch(() => {});
 });
@@ -890,6 +968,7 @@ async function injectOpenTabs() {
     return;
   }
   for (const t of tabs) await injectRenard(t.id).catch(() => {});
+  if (await everywhere()) await injectWebTabs();
 }
 
 ext.runtime.onInstalled.addListener(async (details) => {

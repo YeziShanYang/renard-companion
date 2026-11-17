@@ -23,6 +23,8 @@
   // HTTPS only: on a plain-HTTP page, anyone on the network could rewrite
   // the page Renard runs on.
   R.originFor = (host) => `https://${host}/*`;
+  // Every secure website, for the Every website setting.
+  R.ALL_WEB = 'https://*/*';
 
   // What an API key can look like: one line of printable ASCII, no spaces,
   // short enough for a request header. Anything else never leaves the page.
@@ -106,6 +108,10 @@
     sites: { claude: true, chatgpt: true },
     // Other websites the user added, by host name ("example.com").
     otherSites: [],
+    // Renard on every secure website, except the ones in skippedSites
+    // (turned off from the toolbar popup while this is on).
+    allSites: false,
+    skippedSites: [],
     prefs: { readChat: true, readableText: false, sound: false },
     bubble: { width: 520, height: 0, expanded: false },
     // Built-in model: the one selected, and which have been downloaded

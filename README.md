@@ -9,9 +9,9 @@
 ![Renard's answer bubble open beside the fox on a dark page, answering "why 256 per token vector"](docs/screenshot.webp)
 
 Renard puts a pixel-art fox in the side margins of claude.ai and chatgpt.com,
-and you can turn it on for other sites too. Click the fox to ask about the
-page, and the answer streams into a large reading panel. Between questions it
-wanders around and eventually naps.
+and you can turn it on for other sites too, one at a time or all at once. Click
+the fox to ask about the page, and the answer streams into a large reading
+panel. Between questions it wanders around and eventually naps.
 
 You don't need an API key. Renard can run Gemma, Google's open model, on your
 graphics chip. After a one-time download in settings it works offline, and your
@@ -151,6 +151,14 @@ Clicking the toolbar icon opens a small menu:
   you can remove them in settings under Sites.
 - Open settings goes to the settings page.
 
+To have Renard on every https site, turn on Every website in settings under
+Sites. The browser asks once for access to all websites. While it's on, the On
+this site switch turns Renard off for just that site. Turning Every website off
+stops Renard on the sites you didn't add. Firefox also gets the access back. In
+Chrome it stays granted until you remove it in the browser's extension
+settings, because Chrome can't take back access to all websites without taking
+back claude.ai and the AI providers too.
+
 On macOS, Alt is Option. To change the shortcuts, go to `about:addons` → gear
 menu → Manage Extension Shortcuts in Firefox, or to
 `chrome://extensions/shortcuts` in Chrome. Renard picks up the new keys.
@@ -217,7 +225,9 @@ site by reading its largest main or article region.
 For other websites, Renard asks for optional host access one site at a time
 from the toolbar menu. The background script then registers the same content
 scripts for each site with `scripting.registerContentScripts` and injects them
-into open tabs. Firefox drops these registrations when the extension updates,
+into open tabs. With Every website on, one registration matches every https
+page instead, and a site turned off from the menu gets the script but stays
+hidden. Firefox drops these registrations when the extension updates,
 and the background script rebuilds them at startup. Styles are added with a
 constructed stylesheet where the browser supports it, because some pages'
 security policies block inline styles.

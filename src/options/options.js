@@ -515,6 +515,34 @@ async function renderSites() {
     li.append(text, actions);
     rows.push(li);
   }
+  rows.push(await allSitesRow());
+  // Websites turned off from the toolbar popup while every website is on.
+  if (settings.allSites) {
+    for (const host of settings.skippedSites) {
+      const li = document.createElement('li');
+      li.className = 'row';
+      const text = document.createElement('div');
+      text.className = 'row-text';
+      const hint = Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Turned off from the toolbar menu' });
+      text.append(Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }), hint);
+      const back = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Turn on' });
+      back.setAttribute('aria-label', `Turn Renard on for ${host}`);
+      back.addEventListener('click', async () => {
+        back.disabled = true;
+        try {
+          await send('renard:skipSite', { host, skip: false });
+        } catch {
+          back.disabled = false;
+          hint.textContent = "Couldn't turn it on. Try again.";
+        }
+      });
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      actions.append(back);
+      li.append(text, actions);
+      rows.push(li);
+    }
+  }
   // Websites added from the toolbar popup.
   for (const host of settings.otherSites) {
     const li = document.createElement('li');
@@ -547,6 +575,39 @@ async function renderSites() {
   const focusId = document.activeElement && document.activeElement.id;
   $('sites').replaceChildren(...rows);
   if (focusId && $(focusId) && document.activeElement !== $(focusId)) $(focusId).focus({ preventScroll: true });
+}
+
+// The Every website switch. It's on only while the browser has granted
+// access to all secure websites, too. Turning it on asks for that access in
+// the same click, and turning it off gives the access back.
+async function allSitesRow() {
+  const li = document.createElement('li');
+  li.className = 'row';
+  const text = document.createElement('div');
+  text.className = 'row-text';
+  const title = Object.assign(document.createElement('span'), { className: 'row-title', id: 'site-all-label', textContent: 'Every website' });
+  const hint = Object.assign(document.createElement('span'), {
+    className: 'hint',
+    textContent: 'Every secure (https) website, not only the ones you add. A site you turn off from the toolbar menu stays off.',
+  });
+  text.append(title, hint);
+  const granted = await hasOrigins([R.ALL_WEB]);
+  const { label, input } = switchControl('site-all', settings.allSites && granted, title.id);
+  input.addEventListener('click', () => {
+    const on = input.checked;
+    const asked = on ? ext.permissions.request({ origins: [R.ALL_WEB] }) : Promise.resolve(true);
+    asked
+      .then(
+        (ok) => (ok ? send('renard:setAllSites', { on }) : null),
+        () => null,
+      )
+      .then(renderSites, renderSites);
+  });
+  const actions = document.createElement('div');
+  actions.className = 'row-actions';
+  actions.append(label);
+  li.append(text, actions);
+  return li;
 }
 
 async function renderAccess() {
@@ -702,7 +763,7 @@ async function init() {
     if (stable(keys.map((k) => prev[k])) === stable(keys.map((k) => fresh[k]))) return; // this page's own save
     Object.assign(settings, fresh);
     const changed = (k) => keys.includes(k) && stable(prev[k]) !== stable(settings[k]);
-    if (changed('sites') || changed('otherSites')) renderSites();
+    if (['sites', 'otherSites', 'allSites', 'skippedSites'].some(changed)) renderSites();
     if (changed('prefs')) renderPrefs();
     if (changed('provider')) {
       renderProvider();

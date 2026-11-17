@@ -3,9 +3,9 @@
 Last updated: November 16, 2026
 
 Renard is a browser extension. It shows a pixel-art fox on claude.ai,
-chatgpt.com, and websites you add, and answers your questions with your own AI
-provider account (Anthropic, OpenAI, or Google Gemini) or with a built-in model
-on your computer.
+chatgpt.com, and websites you add (or every website, if you turn that on), and
+answers your questions with your own AI provider account (Anthropic, OpenAI, or
+Google Gemini) or with a built-in model on your computer.
 
 Renard has no server. Nothing you type or read is sent to Renard's developer.
 
@@ -106,8 +106,10 @@ transfer your data to anyone other than the provider you choose, and then only
 to answer your question.
 
 It runs only on claude.ai, chatgpt.com, chat.openai.com, and secure (https)
-websites you add one at a time. On each of these, it runs only if you've
-turned it on.
+websites you add one at a time, or on every secure website if you turn on
+Every website in settings. On each of these, it runs only if you've turned it
+on. Even on every website, it reads a page only when you send a question with
+Read page on.
 
 ## Permissions
 
@@ -121,7 +123,10 @@ turned it on.
 - Scripting, active tab, and optional access to other websites. When you turn
   Renard on for a website from its toolbar menu, Renard asks your browser for
   access to that one site and shows the fox there. Removing the site gives the
-  access back.
+  access back. If you turn on Every website in settings, Renard asks for
+  access to all secure websites and shows the fox on each of them. Turning it
+  off stops Renard on the sites you didn't add. Firefox also gets that access
+  back. Chrome keeps it until you remove it in its extension settings.
 - Access to api.anthropic.com, api.openai.com, and
   generativelanguage.googleapis.com, to send your question to the provider you
   chose.
