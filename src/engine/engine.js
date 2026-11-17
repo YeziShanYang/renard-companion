@@ -31,6 +31,16 @@ const UNLOAD_AFTER_MS = 10 * 60 * 1000;
 // and force a restart.
 const MAX_PROMPT_TOKENS = IS_FIREFOX ? 1800 : 2500;
 
+// Reading a long prompt leaves the GPU holding memory that only unloading
+// the model gives back: in Chrome, three prompts near the limit left 8.5 GB
+// in the engine's page and 6.2 GB in the GPU process. After a prompt over
+// half the limit, the model is unloaded a minute after the last answer
+// instead of ten. This matters in Chrome. Firefox suspends the background
+// page that runs the engine about 30 seconds after the last answer, which
+// takes the model with it sooner either way.
+const LONG_PROMPT_TOKENS = Math.round(MAX_PROMPT_TOKENS / 2);
+const UNLOAD_SOON_MS = 60 * 1000;
+
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 // The WebAssembly runtime ships inside the extension (never from a CDN).
@@ -53,10 +63,12 @@ function checkLength(ids) {
   if (tokens > MAX_PROMPT_TOKENS) {
     throw new EngineError('tooLong', `The prompt is ${tokens} tokens, over the ${MAX_PROMPT_TOKENS} this browser can run.`, { tokens, limit: MAX_PROMPT_TOKENS });
   }
+  if (tokens > LONG_PROMPT_TOKENS) readLong = true;
 }
 
 let current = null; // { key, dtype, run, dispose }
 let unloadTimer = 0;
+let readLong = false; // the loaded model has read a long prompt
 let active = null; // stopper of the generation in progress
 
 // Everything that loads, uses or frees a model runs one at a time, in
@@ -210,6 +222,7 @@ export async function unload() {
   if (active) active.interrupt();
   const c = current;
   current = null;
+  readLong = false;
   if (c) {
     try {
       await c.dispose();
@@ -221,7 +234,7 @@ export async function unload() {
 
 function scheduleUnload() {
   clearTimeout(unloadTimer);
-  unloadTimer = setTimeout(() => serial(unload), UNLOAD_AFTER_MS);
+  unloadTimer = setTimeout(() => serial(unload), readLong ? UNLOAD_SOON_MS : UNLOAD_AFTER_MS);
 }
 
 // Cached files for a model: their URLs contain the repository path and, for
