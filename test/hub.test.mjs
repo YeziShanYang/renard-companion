@@ -92,6 +92,7 @@ test('a download counts as cached only when it is whole, for this dtype and revi
   assert.ok(!hasModelFiles(all, gemma, 'q4'), 'weights in another dtype');
   assert.ok(!hasModelFiles(all.filter((u) => !u.endsWith('/tokenizer.json')), gemma, 'q4f16'), 'no tokenizer');
   assert.ok(!hasModelFiles(all.filter((u) => !u.includes('/onnx/')), gemma, 'q4f16'), 'no weights');
+  assert.ok(!hasModelFiles(all.filter((u) => !u.endsWith('.onnx_data')), gemma, 'q4f16'), 'weights file missing beside its graph');
   const older = all.map((u) => u.replace(gemma.revision, 'f'.repeat(40)));
   assert.ok(!hasModelFiles(older, gemma, 'q4f16'), 'an older revision');
   assert.ok(!hasModelFiles([], gemma, 'q4f16'));

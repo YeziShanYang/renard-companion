@@ -51,7 +51,9 @@
   };
 
   // Models for the built-in provider, run on the GPU with Transformers.js.
-  // sizes are the download for each quantization (text parts only).
+  // sizes are the whole download for each quantization: the weights (an .onnx
+  // file and its .onnx_data for each part) and the tokenizer. Gemma 4 E2B
+  // loads text-only, without its audio and vision encoders.
   R.LOCAL_MODELS = {
     'gemma-3-1b': {
       id: 'gemma-3-1b',
@@ -61,7 +63,7 @@
       // downloads and runs until this is bumped.
       revision: 'a58439f40017d3b99c7d378ff525e54e0ba08ebf',
       kind: 'text',
-      sizes: { q4f16: 764e6, q4: 859e6 },
+      sizes: { q4f16: 784e6, q4: 880e6 },
       blurb: 'Quick and light. Good for short questions and summaries.',
     },
     'gemma-4-e2b': {
@@ -70,7 +72,7 @@
       repo: 'onnx-community/gemma-4-E2B-it-ONNX',
       revision: '6f21c99d7e18237f8d2ce92aadfdbfeba877f63a',
       kind: 'gemma4',
-      sizes: { q4f16: 3111e6, q4: 3627e6 },
+      sizes: { q4f16: 3131e6, q4: 3647e6 },
       blurb: 'Noticeably smarter. Needs about 5 GB of free memory.',
     },
   };

@@ -10,7 +10,7 @@ import {
   env,
   pipeline,
   AutoProcessor,
-  Gemma4ForConditionalGeneration,
+  Gemma4ForCausalLM,
   TextStreamer,
   InterruptableStoppingCriteria,
 } from '../vendor/transformers/transformers.min.js';
@@ -150,9 +150,11 @@ async function loadModel(key, model, dtype, progress_callback) {
   let dispose;
 
   if (model.kind === 'gemma4') {
-    // Gemma 4 is multimodal; Renard sends text only.
+    // Gemma 4 is multimodal, and Renard sends it text only. Loading it as a
+    // causal LM makes Transformers.js leave out the audio and vision
+    // encoders (about 270 MB, and their GPU memory).
     const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
-    const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
+    const lm = await Gemma4ForCausalLM.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
     run = async ({ system, user, maxNewTokens, onDelta, onTokens, stopper }) => {
       const messages = [
         { role: 'system', content: [{ type: 'text', text: system }] },

@@ -32,9 +32,12 @@ export function hubSettings(model, { cacheOnly = false } = {}) {
 // dtype: its config, its tokenizer, and weights in that dtype. Checked before
 // a cache-only load, because Transformers.js remembers a missing tokenizer for
 // as long as the page lives, and a later download there would fail too.
+// Both built-in models keep each part's weights in an .onnx_data file beside
+// its .onnx, so a part missing either one is not whole.
 export function hasModelFiles(urls, model, dtype) {
   const base = fileBase(model);
   const files = new Set(urls.filter((u) => u.startsWith(base)).map((u) => u.slice(base.length)));
-  const weights = [...files].some((f) => f.startsWith('onnx/') && f.endsWith(`_${dtype}.onnx`));
+  const graphs = [...files].filter((f) => f.startsWith('onnx/') && f.endsWith(`_${dtype}.onnx`));
+  const weights = graphs.length > 0 && graphs.every((f) => files.has(`${f}_data`));
   return weights && ['config.json', 'tokenizer.json', 'tokenizer_config.json'].every((f) => files.has(f));
 }
