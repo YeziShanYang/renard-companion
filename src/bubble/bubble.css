@@ -533,6 +533,13 @@ body {
   text-underline-offset: 2px;
 }
 
+/* A right-to-left override in link text can't carry on into the label
+   after it and reverse the address shown there. */
+.answer a,
+.answer .link-dest {
+  unicode-bidi: isolate;
+}
+
 /* Where a link with its own text really goes. */
 .answer .link-dest {
   color: var(--muted);
@@ -584,6 +591,14 @@ body {
    parse, shows as code. */
 .answer .katex {
   font-size: 1.1em;
+}
+
+/* An inline formula paints only inside its own box. KaTeX's \llap, \kern
+   and \colorbox could otherwise draw over the text beside it, such as the
+   address shown after a link. */
+.answer .math:not(.math-display) {
+  display: inline-block;
+  overflow: clip;
 }
 
 .answer .math-display {

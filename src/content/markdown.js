@@ -241,9 +241,14 @@
   const INLINE_RULES = [
     { re: /^\*\*\*(?=\S)([\s\S]+?)(?<=\S)\*\*\*/, make: (m) => ({ type: 'strong', children: [{ type: 'em', children: parseInline(m[1]) }] }) },
     // Code spans inside are skipped whole, so "**`a ** b`:**" is bold code.
-    { re: /^\*\*(?=\S)((?:`[^`\n]+`|[^*`]|`|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
+    // (?=(…))\2 takes a span atomically, and a lone backtick counts only when
+    // no backtick follows it on the line. Without both, an unclosed ** before
+    // many code spans tried every way of splitting them: 84 characters took
+    // seconds.
+    { re: /^\*\*(?=\S)((?:(?=(`[^`\n]+`))\2|[^*`]|`(?![^`\n]*`)|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
     { re: /^__(?=\S)([\s\S]+?)(?<=\S)__(?![A-Za-z0-9])/, word: true, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
-    { re: /^\*(?=[^\s*])((?:\*\*[^*]+\*\*|[^*])+?)(?<=\S)\*(?!\*)/, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
+    // Code spans are skipped whole here too, so "*use `a*b`*" is italic code.
+    { re: /^\*(?=[^\s*])((?:(?=(`[^`\n]+`))\2|\*\*[^*]+\*\*|[^*`]|`(?![^`\n]*`))+?)(?<=\S)\*(?!\*)/, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
     { re: /^_(?=[^\s_])([\s\S]+?)(?<=\S)_(?![A-Za-z0-9_])/, word: true, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
     { re: /^~~(?=\S)([\s\S]+?)(?<=\S)~~/, make: (m) => ({ type: 'del', children: parseInline(m[1]) }) },
   ];
@@ -251,18 +256,41 @@
   // Inside a link's text, nothing else becomes a link (no nested anchors).
   let inLink = 0;
 
+  // Math counts as its source, so a formula in link text can't make the text
+  // look like the address.
   function plainText(nodes) {
-    return nodes.map((n) => (n.type === 'text' || n.type === 'code' ? n.text : n.children ? plainText(n.children) : '')).join('');
+    const of = (n) => (n.type === 'text' || n.type === 'code' ? n.text : n.type === 'math' ? n.raw : n.children ? plainText(n.children) : '');
+    return nodes.map(of).join('');
+  }
+
+  function decoded(href) {
+    try {
+      return decodeURI(href);
+    } catch {
+      return href;
+    }
+  }
+
+  // Where a mailto: link sends mail, cc and bcc included.
+  function mailDest(href) {
+    const u = new URL(href);
+    const to = decoded(u.pathname);
+    const copies = ['cc', 'bcc'].flatMap((k) => u.searchParams.getAll(k).map((v) => `${k} ${v}`));
+    return [to, ...copies].filter(Boolean).join(', ');
   }
 
   // A link whose text isn't its own address also shows where it really goes,
   // so "[your settings](https://elsewhere.example)" can't pass for a link to
-  // the settings.
+  // the settings. Bare addresses get the same check, which shows the real
+  // (punycode) host of one spelled with look-alike letters.
   function linkNode(href, children) {
     const node = { type: 'link', href, children };
     const text = plainText(children).trim().replace(/\/$/, '');
-    if (text !== href.replace(/\/$/, '') && text !== href.replace(/^mailto:/, '')) {
-      node.dest = href.startsWith('mailto:') ? href.slice(7).split('?')[0] : new URL(href).host;
+    if (href.startsWith('mailto:')) {
+      const dest = mailDest(href);
+      if (text !== dest) node.dest = dest;
+    } else if (text !== href.replace(/\/$/, '') && text !== decoded(href).replace(/\/$/, '')) {
+      node.dest = new URL(href).host;
     }
     return node;
   }
@@ -355,7 +383,7 @@
         const href = m && safeUrl(m[1]);
         if (href) {
           flush();
-          out.push({ type: 'link', href, children: [{ type: 'text', text: m[1] }] });
+          out.push(linkNode(href, [{ type: 'text', text: m[1] }]));
           i += m[0].length;
           continue;
         }
@@ -366,7 +394,7 @@
         const href = m && safeUrl(m[0]);
         if (href) {
           flush();
-          out.push({ type: 'link', href, children: [{ type: 'text', text: m[0] }] });
+          out.push(linkNode(href, [{ type: 'text', text: m[0] }]));
           i += m[0].length;
           continue;
         }

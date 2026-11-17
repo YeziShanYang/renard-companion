@@ -162,3 +162,32 @@ test('bold around inline code that contains asterisks', () => {
     text(' the formula'),
   ]);
 });
+
+test('an unclosed ** before many code spans parses in linear time', () => {
+  for (const src of ['**' + '`a'.repeat(400) + ' x', '**Flags: ' + Array.from({ length: 200 }, (_, i) => `\`-${i}\``).join(', ')]) {
+    const t = performance.now();
+    parse(src);
+    assert.ok(performance.now() - t < 200, `took ${Math.round(performance.now() - t)} ms`);
+  }
+  const [p] = parse('**`a ** b`:** done');
+  assert.deepEqual(p.children[0], { type: 'strong', children: [{ type: 'code', text: 'a ** b' }, text(':')] });
+});
+
+test('italics around inline code that contains * stay italic', () => {
+  const [p] = parse('*use `a*b` here* end');
+  assert.deepEqual(p.children, [{ type: 'em', children: [text('use '), { type: 'code', text: 'a*b' }, text(' here')] }, text(' end')]);
+});
+
+test('every link that could pass for another address shows where it goes', () => {
+  const link = (src) => parse(src)[0].children.find((n) => n.type === 'link');
+  // Look-alike letters in a bare address or an autolink.
+  assert.equal(link('Go to https://сlaude.ai/login now').dest, 'xn--laude-0ye.ai');
+  assert.equal(link('<https://сlaude.ai/login>').dest, 'xn--laude-0ye.ai');
+  // A plain bare address needs no label.
+  assert.equal(link('See https://example.com/docs').dest, undefined);
+  // Math in the link text counts as its source.
+  assert.equal(link('[https://evil.example$\\llap{x}$](https://evil.example)').dest, 'evil.example');
+  // cc and bcc recipients are listed.
+  assert.equal(link('[me@example.com](mailto:me@example.com?bcc=other@evil.example)').dest, 'me@example.com, bcc other@evil.example');
+  assert.equal(link('[me@example.com](mailto:me@example.com)').dest, undefined);
+});
