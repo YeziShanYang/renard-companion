@@ -7,11 +7,14 @@
   const R = (globalThis.Renard = globalThis.Renard || {});
 
   const FENCE = /^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)/;
-  const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
+  // The text after the hashes; closing hashes are trimmed in headingText()
+  // (a lazy match with trailing \s* backtracked on a long run of spaces).
+  const HEADING = /^\s{0,3}(#{1,6})(?:[ \t]+(.*))?$/;
   const HR = /^\s{0,3}([-*_])(\s*\1){2,}\s*$/;
   const QUOTE = /^\s{0,3}>/;
   const LIST = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
-  const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+  // Tested on a trimmed line (overlapping \s* on a line of spaces backtracks).
+  const TABLE_SEP = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
   // Display math on its own lines: $$ … $$ or \[ … \].
   const MATH_BLOCK = /^\s{0,3}(\$\$|\\\[)(.*)$/;
   const TASK = /^\[([ xX])\]\s+(.*)$/;
@@ -19,8 +22,36 @@
   const isBlank = (l) => /^\s*$/.test(l);
   const lead = (l) => l.match(/^ */)[0].length;
 
+  // "Title ##  " is "Title": trailing spaces, then closing hashes after a
+  // space, go.
+  function headingText(text) {
+    let t = text.trimEnd();
+    let k = t.length;
+    while (k > 0 && t[k - 1] === '#') k--;
+    if (k < t.length && (k === 0 || t[k - 1] === ' ' || t[k - 1] === '\t')) t = t.slice(0, k).trimEnd();
+    return t;
+  }
+
+  // A backtick fence's info string can't hold a backtick, so a line like
+  // "```bash npm i``` then restart" is inline code, not a fence.
+  function fenceOf(line) {
+    const m = line.match(FENCE);
+    if (m && m[2][0] === '`' && line.slice(m[0].length).includes('`')) return null;
+    return m;
+  }
+
   function startsBlock(line) {
-    return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line) || MATH_BLOCK.test(line);
+    return Boolean(fenceOf(line)) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line) || MATH_BLOCK.test(line);
+  }
+
+  // A table starts at lines[i]: a row with a pipe, then a separator row with
+  // as many cells.
+  function startsTable(lines, i) {
+    const line = lines[i];
+    const sep = lines[i + 1];
+    if (!line.includes('|') || sep === undefined || !sep.includes('-')) return false;
+    const s = sep.trim();
+    return TABLE_SEP.test(s) && splitRow(s).length === splitRow(line).length;
   }
 
   function splitRow(line) {
@@ -71,7 +102,7 @@
           i++;
           continue;
         }
-        if (startsBlock(l)) break;
+        if (startsBlock(l) || startsTable(lines, i)) break;
         item.push(l.trim()); // lazy continuation
         i++;
       }
@@ -113,7 +144,7 @@
         continue;
       }
 
-      let m = line.match(FENCE);
+      let m = fenceOf(line);
       if (m) {
         const fence = m[2];
         const indent = m[1].length;
@@ -170,7 +201,7 @@
 
       m = line.match(HEADING);
       if (m) {
-        out.push({ type: 'heading', level: m[1].length, children: parseInline(m[2]) });
+        out.push({ type: 'heading', level: m[1].length, children: parseInline(headingText(m[2] || '')) });
         i++;
         continue;
       }
@@ -191,9 +222,9 @@
         continue;
       }
 
-      if (line.includes('|') && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+      if (startsTable(lines, i)) {
         const head = splitRow(line);
-        const align = splitRow(lines[i + 1]).map((c) =>
+        const align = splitRow(lines[i + 1].trim()).map((c) =>
           c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : null,
         );
         i += 2;
@@ -220,13 +251,26 @@
 
       const buf = [line];
       i++;
-      while (i < lines.length && !isBlank(lines[i]) && !startsBlock(lines[i])) {
+      while (i < lines.length && !isBlank(lines[i]) && !startsBlock(lines[i]) && !startsTable(lines, i)) {
         buf.push(lines[i]);
         i++;
       }
       out.push({ type: 'paragraph', children: parseInline(buf.map((l) => l.replace(/^\s+/, '')).join('\n')) });
     }
     return out;
+  }
+
+  // A bare address ends before trailing punctuation, and before a closing
+  // parenthesis it didn't open ("(see https://x.example/a_(b))").
+  function trimUrl(url) {
+    let u = url;
+    for (;;) {
+      const last = u[u.length - 1];
+      if ('.,:;"\'!?*_~]'.includes(last)) u = u.slice(0, -1);
+      else if (last === ')' && (u.match(/\)/g) || []).length > (u.match(/\(/g) || []).length) u = u.slice(0, -1);
+      else break;
+    }
+    return u.length > 'https://'.length ? u : null;
   }
 
   function safeUrl(url) {
@@ -298,6 +342,9 @@
   function parseInline(src) {
     const out = [];
     let text = '';
+    // Closers already known to be missing after some point, so a run of
+    // unclosed "\(" or "[" isn't searched to the end again from each one.
+    const missing = new Set();
     const flush = () => {
       if (text) out.push({ type: 'text', text });
       text = '';
@@ -310,7 +357,8 @@
       // Math: \( … \) inline, \[ … \] displayed.
       if (ch === '\\' && (src[i + 1] === '(' || src[i + 1] === '[')) {
         const close = src[i + 1] === '(' ? '\\)' : '\\]';
-        const end = src.indexOf(close, i + 2);
+        const end = missing.has(close) ? -1 : src.indexOf(close, i + 2);
+        if (end === -1) missing.add(close);
         const tex = end === -1 ? '' : src.slice(i + 2, end).trim();
         if (tex) {
           flush();
@@ -354,8 +402,8 @@
 
       if (ch === '\n') {
         flush();
-        if (/ {2,}$/.test(out.length && out[out.length - 1].type === 'text' ? out[out.length - 1].text : '')) {
-          out[out.length - 1].text = out[out.length - 1].text.replace(/ +$/, '');
+        if ((out.length && out[out.length - 1].type === 'text' ? out[out.length - 1].text : '').endsWith('  ')) {
+          out[out.length - 1].text = out[out.length - 1].text.trimEnd();
           out.push({ type: 'br' });
         } else {
           text = ' ';
@@ -364,8 +412,10 @@
         continue;
       }
 
-      if (ch === '[' && !inLink) {
-        const m = rest.match(/^\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/);
+      if (ch === '[' && !inLink && !missing.has('](')) {
+        if (src.indexOf('](', i) === -1) missing.add('](');
+        // The address may hold balanced parentheses: …/wiki/Foo_(bar).
+        const m = rest.match(/^\[([^\]\n]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?(?:\s+"[^"]*")?\s*\)/);
         const href = m && safeUrl(m[2]);
         if (href) {
           flush();
@@ -390,12 +440,13 @@
       }
 
       if (ch === 'h' && !inLink && !/[A-Za-z0-9]/.test(src[i - 1] || '')) {
-        const m = rest.match(/^https?:\/\/[^\s<]+[^\s<.,:;"')\]!?*_~]/);
-        const href = m && safeUrl(m[0]);
+        const m = rest.match(/^https?:\/\/[^\s<]+/);
+        const url = m && trimUrl(m[0]);
+        const href = url && safeUrl(url);
         if (href) {
           flush();
-          out.push(linkNode(href, [{ type: 'text', text: m[0] }]));
-          i += m[0].length;
+          out.push(linkNode(href, [{ type: 'text', text: url }]));
+          i += url.length;
           continue;
         }
       }
@@ -448,7 +499,21 @@
   }
 
   function parse(markdown) {
-    const lines = String(markdown).replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+    // Tabs count as four spaces for indentation, but code inside a fence
+    // keeps its own (a Makefile needs them).
+    let open = null;
+    const lines = String(markdown)
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map((l) => {
+        const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(l);
+        if (open) {
+          if (m && m[1][0] === open[0] && m[1].length >= open.length && !m[2].trim()) open = null;
+          return open ? l : l.replace(/\t/g, '    ');
+        }
+        if (m && !(m[1][0] === '`' && m[2].includes('`'))) open = m[1];
+        return l.replace(/\t/g, '    ');
+      });
     return parseBlocks(lines);
   }
 
@@ -635,6 +700,11 @@
         case 'ol':
           el = document.createElement(b.type);
           if (b.type === 'ol' && b.start !== 1) el.start = b.start;
+          if (b.type === 'ol') {
+            // Room for the widest number, so "1000." isn't clipped.
+            const digits = String(Math.max(Math.abs(b.start), Math.abs(b.start + b.items.length - 1))).length;
+            if (digits > 2) el.style.paddingLeft = `${0.6 * digits + 0.4}em`;
+          }
           for (const item of b.items) {
             const li = document.createElement('li');
             if (item.task !== undefined) {

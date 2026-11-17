@@ -191,3 +191,43 @@ test('every link that could pass for another address shows where it goes', () =>
   assert.equal(link('[me@example.com](mailto:me@example.com?bcc=other@evil.example)').dest, 'me@example.com, bcc other@evil.example');
   assert.equal(link('[me@example.com](mailto:me@example.com)').dest, undefined);
 });
+
+test('a line like ```bash npm i``` is inline code, not an open fence', () => {
+  const blocks = parse('```bash npm install``` then restart.\n\n## Next');
+  assert.equal(blocks[0].type, 'paragraph');
+  assert.deepEqual(blocks[0].children[0], { type: 'code', text: 'bash npm install' });
+  assert.equal(blocks[1].type, 'heading');
+});
+
+test('tables right after a paragraph or list line, and with single-dash separators', () => {
+  assert.deepEqual(parse('Here:\n| A | B |\n|---|---|\n| 1 | 2 |').map((b) => b.type), ['paragraph', 'table']);
+  assert.deepEqual(parse('- item\n| a | b |\n|---|---|\n| 1 | 2 |').map((b) => b.type), ['ul', 'table']);
+  assert.equal(parse('| a | b |\n|-|-|\n| 1 | 2 |')[0].type, 'table');
+  // A separator with fewer cells than the header isn't one.
+  assert.equal(parse('a | b\n-').some((b) => b.type === 'table'), false);
+});
+
+test('code inside a fence keeps its tabs; tabs elsewhere still indent', () => {
+  const [code] = parse('```make\nall:\n\techo hi\n```');
+  assert.equal(code.text, 'all:\n\techo hi');
+  assert.equal(parse('-\tone\n-\ttwo')[0].type, 'ul');
+});
+
+test('parentheses in link and bare addresses', () => {
+  const link = (src) => parse(src)[0].children.find((n) => n.type === 'link');
+  assert.equal(link('[Foo](https://en.wikipedia.org/wiki/Foo_(bar)) after').href, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+  assert.equal(link('See https://en.wikipedia.org/wiki/Foo_(bar) now').href, 'https://en.wikipedia.org/wiki/Foo_(bar)');
+  // A closing parenthesis the address didn't open isn't part of it.
+  assert.equal(link('(see https://example.com/docs)').href, 'https://example.com/docs');
+  assert.equal(link('Go to https://example.com/a.').href, 'https://example.com/a');
+});
+
+test('headings drop closing hashes, and long runs of spaces parse quickly', () => {
+  assert.deepEqual(parse('## Title ##')[0].children, [text('Title')]);
+  assert.deepEqual(parse('# C#')[0].children, [text('C#')]);
+  for (const src of ['# a' + ' '.repeat(50000) + 'b', '\\('.repeat(25000), '['.repeat(50000), 'x' + ' '.repeat(50000) + '\ny']) {
+    const t = performance.now();
+    parse(src);
+    assert.ok(performance.now() - t < 200, `${src.slice(0, 6)}… took ${Math.round(performance.now() - t)} ms`);
+  }
+});
