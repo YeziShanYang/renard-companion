@@ -516,29 +516,19 @@ async function renderSites() {
     rows.push(li);
   }
   rows.push(await allSitesRow());
-  // Websites turned off from the toolbar popup while every website is on.
+  // Websites turned off from the toolbar popup while every website is on
+  // (added sites that were turned off are listed with the added sites).
   if (settings.allSites) {
-    for (const host of settings.skippedSites) {
+    for (const host of settings.skippedSites.filter((h) => !settings.otherSites.includes(h))) {
       const li = document.createElement('li');
       li.className = 'row';
       const text = document.createElement('div');
       text.className = 'row-text';
       const hint = Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Turned off from the toolbar menu' });
       text.append(Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }), hint);
-      const back = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Turn on' });
-      back.setAttribute('aria-label', `Turn Renard on for ${host}`);
-      back.addEventListener('click', async () => {
-        back.disabled = true;
-        try {
-          await send('renard:skipSite', { host, skip: false });
-        } catch {
-          back.disabled = false;
-          hint.textContent = "Couldn't turn it on. Try again.";
-        }
-      });
       const actions = document.createElement('div');
       actions.className = 'row-actions';
-      actions.append(back);
+      actions.append(turnOnButton(host, hint));
       li.append(text, actions);
       rows.push(li);
     }
@@ -549,7 +539,11 @@ async function renderSites() {
     li.className = 'row';
     const text = document.createElement('div');
     text.className = 'row-text';
-    const hint = Object.assign(document.createElement('span'), { className: 'hint', textContent: 'Added from the toolbar menu' });
+    const skipped = settings.skippedSites.includes(host);
+    const hint = Object.assign(document.createElement('span'), {
+      className: 'hint',
+      textContent: skipped ? 'Added, then turned off from the toolbar menu' : 'Added from the toolbar menu',
+    });
     text.append(Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }), hint);
     const remove = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Remove' });
     remove.setAttribute('aria-label', `Remove ${host}`);
@@ -566,6 +560,7 @@ async function renderSites() {
     });
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (skipped) actions.append(turnOnButton(host, hint));
     actions.append(remove);
     li.append(text, actions);
     rows.push(li);
@@ -575,6 +570,23 @@ async function renderSites() {
   const focusId = document.activeElement && document.activeElement.id;
   $('sites').replaceChildren(...rows);
   if (focusId && $(focusId) && document.activeElement !== $(focusId)) $(focusId).focus({ preventScroll: true });
+}
+
+// Turns Renard back on for a site that was turned off from the toolbar
+// popup. hint shows a failure.
+function turnOnButton(host, hint) {
+  const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Turn on' });
+  btn.setAttribute('aria-label', `Turn Renard on for ${host}`);
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await send('renard:skipSite', { host, skip: false });
+    } catch {
+      btn.disabled = false;
+      hint.textContent = "Couldn't turn it on. Try again.";
+    }
+  });
+  return btn;
 }
 
 // The Every website switch. It's on only while the browser has granted

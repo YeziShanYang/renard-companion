@@ -55,7 +55,7 @@ async function render() {
 
   let listed = false;
   if (site && !site.generic) listed = s.sites[site.id] !== false;
-  else if (site) listed = s.allSites ? !s.skippedSites.includes(site.name) : s.otherSites.includes(site.name);
+  else if (site) listed = !s.skippedSites.includes(site.name) && (s.allSites || s.otherSites.includes(site.name));
   let status;
   if (!spawned) status = 'Napping at home. Flip the switch to bring me out!';
   else if (on) status = 'Out exploring this page!';

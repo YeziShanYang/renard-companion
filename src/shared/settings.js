@@ -102,10 +102,9 @@ export async function hasOrigins(origins) {
 export async function siteIsOn(s, site) {
   if (!site) return false;
   if (!site.generic) return s.sites[site.id] !== false && (await hasOrigins(site.origins));
-  if (s.allSites) {
-    if (s.skippedSites.includes(site.name)) return false;
-    return (await hasOrigins([R.ALL_WEB])) || (await hasOrigins(site.origins));
-  }
+  // Turned off from the toolbar popup: off in either mode.
+  if (s.skippedSites.includes(site.name)) return false;
+  if (s.allSites) return (await hasOrigins([R.ALL_WEB])) || (await hasOrigins(site.origins));
   return s.otherSites.includes(site.name) && (await hasOrigins(site.origins));
 }
 

@@ -327,7 +327,8 @@ const handlers = {
   },
 
   // A website turned off, or back on, from the toolbar popup while Renard
-  // is on every website.
+  // is on every website. A skipped site stays off in either mode, also if
+  // it was added on its own, until it's turned back on or added again.
   'renard:skipSite': async (msg, sender) => {
     if (!fromPopupOrSettings(sender) || !R.isWebHost(msg.host)) throw new Error('Not allowed');
     const skip = msg.skip === true;
@@ -335,10 +336,12 @@ const handlers = {
       if (list.includes(msg.host) === skip) return undefined;
       return skip ? [...list, msg.host] : list.filter((h) => h !== msg.host);
     });
-    // A site added on its own and then turned off stays off when Every
-    // website is turned off later. Only Renard's list changes, not the
-    // browser's access.
-    if (skip) await update('otherSites', (list) => (list.includes(msg.host) ? list.filter((h) => h !== msg.host) : undefined));
+    // Tabs opened while the site was off have no copy of Renard's script.
+    if (!skip) {
+      await syncSiteScripts();
+      const s = await loadSettings(['sites', 'otherSites', 'allSites', 'skippedSites']);
+      if (await siteIsOn(s, R.webSite(msg.host))) await injectHost(msg.host);
+    }
     return { host: msg.host, skipped: skip };
   },
 
@@ -763,11 +766,12 @@ async function injectRenard(tabId) {
 }
 let siteScripts = Promise.resolve();
 
+// Added sites Renard runs on: allowed by the browser and not turned off.
 async function grantedOtherSites() {
-  const { otherSites } = await loadSettings(['otherSites']);
+  const { otherSites, skippedSites } = await loadSettings(['otherSites', 'skippedSites']);
   const out = [];
   for (const host of otherSites) {
-    if (R.isWebHost(host) && (await hasOrigins([R.originFor(host)]))) out.push(host);
+    if (R.isWebHost(host) && !skippedSites.includes(host) && (await hasOrigins([R.originFor(host)]))) out.push(host);
   }
   return out;
 }
@@ -835,15 +839,22 @@ async function addSiteOnce(host) {
   // Added again after being left out of Every website: no longer left out.
   await update('skippedSites', (list) => (list.includes(host) ? list.filter((h) => h !== host) : undefined));
   await syncSiteScripts();
+  return { added: host, ...(await injectHost(host)) };
+}
+
+// Brings Renard to a site's open tabs now (the registered script covers
+// pages loaded later). Returns how many tabs there were and how many
+// refused the script.
+async function injectHost(host) {
   let tabs = [];
   try {
-    tabs = await ext.tabs.query({ url: origin });
+    tabs = await ext.tabs.query({ url: R.originFor(host) });
   } catch {
     // no matching tabs
   }
   let blocked = 0;
   for (const t of tabs) await injectRenard(t.id).catch(() => blocked++);
-  return { added: host, tabs: tabs.length, blocked };
+  return { tabs: tabs.length, blocked };
 }
 
 async function removeSite(host) {
@@ -934,7 +945,7 @@ ext.storage.onChanged.addListener((changes, area) => {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }
-  if ('otherSites' in changes || 'allSites' in changes) syncSiteScripts();
+  if (['otherSites', 'allSites', 'skippedSites'].some((k) => k in changes)) syncSiteScripts();
 });
 
 ext.permissions.onAdded.addListener((permissions) => {
