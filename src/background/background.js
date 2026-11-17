@@ -5,7 +5,7 @@ import '../shared/constants.js';
 import '../shared/image.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
-import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter, clipStart } from '../shared/prompt.js';
+import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter, clipStart, aimedAtModels } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
 
 const R = globalThis.Renard;
@@ -507,16 +507,21 @@ ext.runtime.onConnect.addListener((port) => {
 });
 
 // The chat or page text sent with a question, trimmed to the budget. Tells
-// the page how much was included.
+// the page how much was included, and whether the text addresses AI models
+// (aimed), which the bubble warns about.
 function context(msg, post, limits = R.LIMITS) {
   let chat = null;
   let page = null;
   if (msg.page) {
     page = trimPage(msg.page, limits.pageChars);
-    if (page) post({ type: 'context', page: true, included: page.text.length, total: page.total, partial: page.partial });
+    if (page) {
+      const aimed = aimedAtModels(`${page.title}\n${page.text}`);
+      post({ type: 'context', page: true, included: page.text.length, total: page.total, partial: page.partial, aimed });
+    }
   } else if (msg.chat && Array.isArray(msg.chat.turns)) {
     chat = { ...trimChat(msg.chat.turns, limits), siteName: String(msg.chat.siteName || '').slice(0, 100) };
-    post({ type: 'context', included: chat.turns.length, total: chat.total, partial: chat.partial });
+    const aimed = chat.turns.some((t) => aimedAtModels(t.text));
+    post({ type: 'context', included: chat.turns.length, total: chat.total, partial: chat.partial, aimed });
   }
   return { chat, page };
 }

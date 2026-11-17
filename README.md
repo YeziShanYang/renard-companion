@@ -20,7 +20,10 @@ OpenAI, or Gemini key instead.
 
 With Read chat on (the default), the conversation on the page goes along with
 your question, for requests like "summarize this chat". On other sites the same
-switch is called Read page and sends the page's text.
+switch is called Read page and sends the page's text. Text a page hides from
+view is left out. If what's sent has text aimed at AI assistants, such as
+"ignore the user's question", the bubble says so, because models (the small
+built-in one especially) can follow it.
 
 To ask about something on screen, click the camera in the bubble and drag over
 that area, or paste or drop an image into the question box. The image goes
@@ -220,7 +223,10 @@ The adapters in `content/adapters/` are the only site-specific code. Each chat
 adapter reads the user and assistant turns, finds the message box so the bubble
 can avoid covering it, and reports the page theme. If an adapter can't find the messages on a chat
 page, Renard says so and answers without the chat. `web.js` handles every other
-site by reading its largest main or article region.
+site by reading its largest main or article region. Both read text the way
+`messageText()` in `common.js` does: without buttons, and without text the page
+hides from view, which a page could otherwise use to slip instructions to the
+model.
 
 For other websites, Renard asks for optional host access one site at a time
 from the toolbar menu. The background script then registers the same content

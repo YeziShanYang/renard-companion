@@ -17,23 +17,32 @@
 
   // Any CSS color (rgb, hsl, oklch, lab, color(), color-mix() …) as
   // [r, g, b, a] in sRGB. Plain rgb() is read directly; anything else is
-  // painted on a 1×1 canvas and read back.
+  // painted on a 1×1 canvas and read back, once per color (a page reading
+  // every element of a Tailwind v4 site meets the same few oklch() colors
+  // thousands of times).
   let probe = null;
+  const painted = new Map();
   function toRgba(value) {
     const direct = parseColor(value);
     if (direct) return direct;
+    if (painted.has(value)) return painted.get(value);
+    let out = null;
     try {
       probe = probe || new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true });
       probe.fillStyle = '#010203';
       probe.fillStyle = value;
-      if (probe.fillStyle === '#010203' && !/#010203/i.test(value)) return null; // not a color
-      probe.clearRect(0, 0, 1, 1);
-      probe.fillRect(0, 0, 1, 1);
-      const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
-      return [r, g, b, a / 255];
+      if (probe.fillStyle !== '#010203' || /#010203/i.test(value)) {
+        probe.clearRect(0, 0, 1, 1);
+        probe.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = probe.getImageData(0, 0, 1, 1).data;
+        out = [r, g, b, a / 255];
+      }
     } catch {
-      return null;
+      out = null;
     }
+    if (painted.size > 500) painted.clear();
+    painted.set(value, out);
+    return out;
   }
 
   const COLOR_FN = /(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\([^()]*\)|#[0-9a-f]{3,8}\b/gi;
@@ -81,34 +90,194 @@
   // ("Copy", "Edit", "Thought for 12s"), form controls, media and scripts.
   const NOT_TEXT = new Set(['BUTTON', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'INPUT', 'SELECT', 'TEXTAREA', 'IFRAME', 'CANVAS', 'VIDEO', 'AUDIO', 'IMG', 'svg']);
 
+  // Clipped to nothing: clip: rect() on a positioned box, or clip-path:
+  // inset() of half or more.
+  function clippedAway(cs) {
+    if ((cs.position === 'absolute' || cs.position === 'fixed') && cs.clip.startsWith('rect(')) {
+      const [top, right, bottom, left] = (cs.clip.match(/-?[\d.]+/g) || []).map(Number);
+      if (right - left <= 1 || bottom - top <= 1) return true;
+    }
+    const inset = /^inset\(\s*([\d.]+)%/.exec(cs.clipPath || '');
+    return Boolean(inset && Number(inset[1]) >= 50);
+  }
+
+  // Transparent content that a page fades in once it's scrolled to: still
+  // below the window, with an opacity transition or animation, or an opacity
+  // a script set (as animation libraries do) or announced in will-change.
+  function fadesInLater(el, cs) {
+    const animated =
+      cs.animationName !== 'none' ||
+      (/\b(opacity|all)\b/.test(cs.transitionProperty) && /[1-9]/.test(cs.transitionDuration)) ||
+      el.style.opacity !== '' ||
+      /\b(opacity|transform)\b/.test(cs.willChange);
+    return animated && el.getBoundingClientRect().top >= innerHeight;
+  }
+
+  // Elements nobody can see, with everything in them. A page can hide text
+  // from the user and still have it read to the model (instructions aimed
+  // at the model, say), so what isn't shown isn't read.
   function unread(el, cs) {
     if (NOT_TEXT.has(el.tagName) || el.hidden || el.getAttribute('aria-hidden') === 'true') return true;
     if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.contentVisibility === 'hidden') return true;
-    // Screen-reader-only text ("ChatGPT said:"): a box of a pixel or less.
-    if ((cs.position === 'absolute' || cs.position === 'fixed') && parseFloat(cs.width) <= 1 && parseFloat(cs.height) <= 1) return true;
-    // Collapsed: no height, and nothing shown past it (a closed thinking block).
-    return parseFloat(cs.height) === 0 && /hidden|clip/.test(cs.overflowY);
+    if ((parseFloat(cs.opacity) < 0.05 && !fadesInLater(el, cs)) || clippedAway(cs)) return true;
+    // A box of a pixel or less that clips what overflows it:
+    // screen-reader-only text ("ChatGPT said:"), or a collapsed block (a
+    // closed thinking block).
+    if ((parseFloat(cs.width) <= 1 && /hidden|clip/.test(cs.overflowX)) || (parseFloat(cs.height) <= 1 && /hidden|clip/.test(cs.overflowY))) return true;
+    // Positioned where nobody can scroll to it.
+    if (cs.position === 'fixed') {
+      const r = el.getBoundingClientRect();
+      return r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight;
+    }
+    if (cs.position === 'absolute') {
+      const r = el.getBoundingClientRect();
+      return r.right + scrollX <= 0 || r.bottom + scrollY <= 0 || r.left + scrollX >= document.documentElement.scrollWidth;
+    }
+    return false;
   }
 
+  const near = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 12;
+
+  // The background an element paints, as far as its own style tells:
+  // undefined when it paints none, null when it paints something its text
+  // could show against whatever its color (an image, or a see-through
+  // color over what's below), or an opaque color.
+  function ownBackground(cs) {
+    if (cs.display === 'contents') return undefined; // has no box to paint
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
+    const c = toRgba(cs.backgroundColor);
+    if (!c || c[3] < 0.05) return undefined;
+    return c[3] > 0.9 ? c : null;
+  }
+
+  // What's painted behind an element's text: its own background, otherwise
+  // what's behind its parent. null when unknown.
+  function behind(cs, parentBg) {
+    const own = ownBackground(cs);
+    return own === undefined ? parentBg : own;
+  }
+
+  // Behind the root: the first ancestor that paints, or the page's own
+  // white canvas (unknown on a dark canvas, whose color varies).
+  function backgroundAbove(el) {
+    for (let node = el.parentElement; node; node = node.parentElement) {
+      const own = ownBackground(getComputedStyle(node));
+      if (own !== undefined) return own;
+    }
+    return /\bdark\b/.test(getComputedStyle(document.documentElement).colorScheme || '') ? null : [255, 255, 255, 1];
+  }
+
+  const MEDIA = 'img, picture, video, canvas, svg, iframe, object, embed';
+
+  // Past this many checks in one read, the rest of the text matching its
+  // background counts as shown, so a page full of it can't stall the read.
+  const MAX_UNDER_CHECKS = 300;
+
+  // What one read has already looked up for paintedUnder: per parent, the
+  // things its children paint ([{ node, own }], own as ownBackground gives
+  // it, null for media); per element, its ::before/::after backgrounds and
+  // its box.
+  function paintMemo() {
+    return { parents: new Map(), layers: new Map(), boxes: new Map(), checks: 0 };
+  }
+
+  function paintersIn(parent, memo) {
+    let list = memo.parents.get(parent);
+    if (list) return list;
+    list = [];
+    for (const child of parent.children) {
+      if (child.closest(R.HOST_SELECTOR || '[data-renard-companion]')) continue;
+      if (child.matches(MEDIA)) {
+        list.push({ node: child, own: null });
+      } else {
+        const own = ownBackground(getComputedStyle(child));
+        if (own !== undefined) list.push({ node: child, own });
+      }
+      for (const media of child.querySelectorAll(MEDIA)) list.push({ node: media, own: null });
+    }
+    memo.parents.set(parent, list);
+    return list;
+  }
+
+  function layersOf(node, memo) {
+    let list = memo.layers.get(node);
+    if (list) return list;
+    list = [];
+    for (const pseudo of ['::before', '::after']) {
+      const cs = getComputedStyle(node, pseudo);
+      if (cs.content === 'none' || cs.content === 'normal') continue;
+      const own = ownBackground(cs);
+      if (own !== undefined) list.push(own);
+    }
+    memo.layers.set(node, list);
+    return list;
+  }
+
+  function boxOf(node, memo) {
+    let r = memo.boxes.get(node);
+    if (!r) memo.boxes.set(node, (r = node.getBoundingClientRect()));
+    return r;
+  }
+
+  // Whether something other than the ancestors' backgrounds is painted
+  // under an element, which the ancestors alone don't tell: a cover image or
+  // video, an overlay box beside the text, or an ancestor's ::before layer.
+  // Only boxes overlapping the element count.
+  function paintedUnder(el, color, memo) {
+    if (++memo.checks > MAX_UNDER_CHECKS) return true;
+    const box = boxOf(el, memo);
+    const overlaps = (n) => {
+      const r = boxOf(n, memo);
+      return r.width > 0 && r.height > 0 && r.left < box.right && r.right > box.left && r.top < box.bottom && r.bottom > box.top;
+    };
+    const shows = (own) => own === null || !near(own, color);
+    for (let node = el; node && node.parentElement; node = node.parentElement) {
+      if (node !== el && layersOf(node, memo).some(shows)) return true;
+      for (const p of paintersIn(node.parentElement, memo)) {
+        if (p.node === node || node.contains(p.node)) continue;
+        if (shows(p.own) && overlaps(p.node)) return true;
+      }
+    }
+    return false;
+  }
+
+  // An element's own text (not its children's) that can't be read: under
+  // about 2 px, transparent, indented far off the page, or the color of
+  // what's behind it with nothing else painted under it. Text painted with
+  // a background (background-clip: text), outlined, shadowed or blended
+  // shows whatever its color.
+  function quietText(el, cs, bg, clipText, memo) {
+    if (parseFloat(cs.fontSize) < 2 || parseFloat(cs.textIndent) <= -999) return true;
+    if (clipText || parseFloat(cs.webkitTextStrokeWidth) > 0 || (cs.textShadow && cs.textShadow !== 'none') || (cs.mixBlendMode && cs.mixBlendMode !== 'normal')) return false;
+    const c = toRgba(cs.webkitTextFillColor || cs.color);
+    if (!c) return false;
+    if (c[3] < 0.05) return true;
+    return Boolean(bg) && near(c, bg) && !paintedUnder(el, c, memo);
+  }
+
+  const clipsText = (cs) => cs.backgroundClip === 'text' || cs.webkitBackgroundClip === 'text';
   const keepsSpace = (cs) => /^(pre|break-spaces)/.test(cs.whiteSpace);
   const FENCE = '```';
 
-  // The text of one chat message as the reader sees it, like innerText
-  // without the interface inside the message. Code blocks come out fenced,
-  // without their header, KaTeX math as its TeX source, and list items with
-  // their markers, indented by nesting.
+  // The text of a chat message or page as the reader sees it, like
+  // innerText without the interface inside it or text that isn't shown.
+  // Code blocks come out fenced, without their header, KaTeX math as its TeX
+  // source, and list items with their markers, indented by nesting. Reading
+  // stops once there are limit characters.
   //
   // The text is kept in pieces, with the last few characters copied aside
-  // for the checks, so each check costs the same however long the message
+  // for the checks, so each check costs the same however long the text
   // already is.
-  function messageText(root) {
+  function messageText(root, limit = Infinity) {
     const parts = [];
     let tail = ''; // the last characters written
+    let total = 0;
     let afterMarker = false; // a list marker was the last thing written
     const TAIL = 64;
     const write = (s) => {
       if (!s) return;
       parts.push(s);
+      total += s.length;
       tail = s.length >= TAIL ? s.slice(-TAIL) : (tail + s).slice(-TAIL);
       afterMarker = false;
     };
@@ -121,6 +290,7 @@
       while (parts.length) {
         const last = parts[parts.length - 1];
         const kept = n === null ? last.replace(/[ \t]+$/, '') : last.slice(0, Math.max(0, last.length - n));
+        total -= last.length - kept.length;
         if (n !== null) n -= last.length - kept.length;
         if (kept) parts[parts.length - 1] = kept;
         else parts.pop();
@@ -136,11 +306,20 @@
       if (have < n) write('\n'.repeat(n - have));
     };
     const counts = new Map(); // ordered list -> number of its last item
-    const walk = (node, pre, depth) => {
+    const memo = paintMemo();
+    // at: { pre (keep whitespace), depth (list nesting), bg (what's behind),
+    // clip (text painted with a background), quiet (node's own text can't
+    // be read) }
+    const walk = (node, at) => {
+      // A closed <details> shows only its summary.
+      const closed = node.tagName === 'DETAILS' && !node.open;
       for (let child = node.firstChild; child; child = child.nextSibling) {
+        if (total >= limit) return;
+        if (closed && child.tagName !== 'SUMMARY') continue;
         if (child.nodeType === 3) {
+          if (at.quiet) continue;
           let t = child.data;
-          if (!pre) {
+          if (!at.pre) {
             t = t.replace(/[ \t\n\r\f]+/g, ' ');
             if (!parts.length || /[ \n\t]$/.test(tail)) t = t.replace(/^ /, '');
           }
@@ -202,7 +381,7 @@
         // List markers, which innerText leaves out.
         const list = el.tagName === 'LI' ? el.parentElement : null;
         if (list && (list.tagName === 'UL' || list.tagName === 'OL')) {
-          const indent = '  '.repeat(Math.max(0, depth - 1));
+          const indent = '  '.repeat(Math.max(0, at.depth - 1));
           if (list.tagName === 'UL') {
             write(indent + '- ');
           } else {
@@ -212,11 +391,21 @@
           }
           afterMarker = true;
         }
-        walk(el, pre || keepsSpace(cs), depth + (el.tagName === 'UL' || el.tagName === 'OL' ? 1 : 0));
+        walk(el, inside(at, el, cs));
         if (block) endLines(lines);
       }
     };
-    walk(root, keepsSpace(getComputedStyle(root)), 0);
+    const inside = (at, el, cs) => {
+      const next = {
+        pre: at.pre || keepsSpace(cs),
+        depth: at.depth + (el.tagName === 'UL' || el.tagName === 'OL' ? 1 : 0),
+        bg: behind(cs, at.bg),
+        clip: at.clip || clipsText(cs),
+      };
+      next.quiet = quietText(el, cs, next.bg, next.clip, memo);
+      return next;
+    };
+    walk(root, inside({ pre: false, depth: 0, bg: backgroundAbove(root), clip: false }, root, getComputedStyle(root)));
     return parts.join('');
   }
 
@@ -286,16 +475,10 @@
       });
     },
 
-    textOf(el) {
-      return (el.innerText || el.textContent || '')
-        .replace(/ /g, ' ')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-    },
-
-    messageText(el) {
-      return tidy(messageText(el));
+    // The text of a message or page, minus interface and hidden text. Stops
+    // reading once there are limit characters.
+    messageText(el, limit) {
+      return tidy(messageText(el, limit));
     },
 
     // Chat turns from message nodes, read newest first until there is more

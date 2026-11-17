@@ -15,6 +15,7 @@ import {
   InterruptableStoppingCriteria,
 } from '../vendor/transformers/transformers.min.js';
 import { CACHE_NAME, hubSettings, hasModelFiles } from './hub.js';
+import { tokenDefuser } from '../shared/prompt.js';
 
 const R = globalThis.Renard;
 const ext = globalThis.browser ?? globalThis.chrome;
@@ -213,7 +214,10 @@ async function loadModel(key, model, dtype, progress_callback) {
     // encoders (about 270 MB, and their GPU memory).
     const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
     const lm = await Gemma4ForCausalLM.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
+    const defuse = tokenDefuser(processor.tokenizer);
     run = async ({ system, user, maxNewTokens, onDelta, onTokens, stopper }) => {
+      system = defuse(system);
+      user = defuse(user);
       const messages = [
         { role: 'system', content: [{ type: 'text', text: system }] },
         { role: 'user', content: [{ type: 'text', text: user }] },
@@ -227,7 +231,10 @@ async function loadModel(key, model, dtype, progress_callback) {
     dispose = () => lm.dispose();
   } else {
     const generator = await pipeline('text-generation', model.repo, { revision, dtype, device: 'webgpu', progress_callback });
+    const defuse = tokenDefuser(generator.tokenizer);
     run = async ({ system, user, maxNewTokens, onDelta, onTokens, stopper }) => {
+      system = defuse(system);
+      user = defuse(user);
       const messages = [
         { role: 'system', content: system },
         { role: 'user', content: user },

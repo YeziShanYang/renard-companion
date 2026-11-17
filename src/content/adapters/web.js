@@ -25,9 +25,13 @@
       // A tiny <main> (a cookie banner, an app shell) is not the page.
       const bodyLength = body ? (body.innerText || '').length : 0;
       const root = best && bestLength >= bodyLength * 0.25 ? best : body;
-      const text = root ? U.textOf(root).slice(0, MAX_CHARS) : '';
-      // The URL without its query or fragment, which can carry tokens.
-      return { title: document.title.slice(0, 300), url: location.origin + location.pathname, text };
+      // Read like a chat message: without buttons, and without text the
+      // page hides from the user (which can still carry instructions aimed
+      // at the model).
+      const text = root ? U.messageText(root, MAX_CHARS).slice(0, MAX_CHARS) : '';
+      // The URL without its query, fragment or ;parameters (a session id,
+      // say), which can carry tokens.
+      return { title: document.title.slice(0, 300), url: location.origin + location.pathname.replace(/;[^/]*/g, ''), text };
     },
 
     composerRect() {

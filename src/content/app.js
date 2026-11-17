@@ -1133,6 +1133,7 @@
       const image = this.attachment;
       if (image) this.setAttachment(null);
       this.last = { question, image };
+      this.contextNote = '';
       this.bubble.startAnswer(question, { screenshot: Boolean(image) });
       // The answer area just appeared; apply the remembered size unless the
       // user has placed the bubble by hand.
@@ -1180,8 +1181,14 @@
           // The built-in model is loading; say so unless text already came.
           if (!text) this.bubble.setLine(this.line('localLoading'), { onChar: this.blip });
         } else if (m.type === 'context') {
-          if (m.page && m.partial) this.bubble.setNote(`Read the first part of this page (${m.included} of ${m.total} characters).`);
-          else if (m.partial) this.bubble.setNote(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
+          const notes = [];
+          // The page or chat talks to AI models ("ignore the question"):
+          // a model, especially the small built-in one, may do what it says.
+          if (m.aimed) notes.push(`This ${m.page ? 'page' : 'chat'} has text aimed at AI assistants, such as instructions to ignore your question. The answer may follow it, so check it before acting on it.`);
+          if (m.page && m.partial) notes.push(`Read the first part of this page (${m.included} of ${m.total} characters).`);
+          else if (m.partial) notes.push(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
+          this.contextNote = notes.join(' ');
+          if (this.contextNote) this.bubble.setNote(this.contextNote);
         } else if (m.type === 'delta') {
           text += m.text;
           this.bubble.setAnswer(text, { streaming: true });
@@ -1210,8 +1217,9 @@
     // limited: the answer stopped at the model's output limit.
     answered(text, { limited = false } = {}) {
       this.bubble.setAnswer(text, { streaming: false });
-      if (!text) this.bubble.setNote('Hmm, the answer came back empty. Try asking again?');
-      else if (limited) this.bubble.setNote("This answer reached the model's length limit, so it ends early.");
+      // Added to the note about what was read, which stays.
+      const extra = !text ? 'Hmm, the answer came back empty. Try asking again?' : limited ? "This answer reached the model's length limit, so it ends early." : '';
+      if (extra) this.bubble.setNote([this.contextNote, extra].filter(Boolean).join(' '));
       const line = this.line('answered');
       this.bubble.setLine(line, { onChar: this.blip });
       this.bubble.announce('Answer ready');
