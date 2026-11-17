@@ -37,18 +37,31 @@ export function localSystemPrompt(chat, page) {
   return parts.join(' ');
 }
 
-// "Ignore the user's question", "disregard all previous instructions".
-const IGNORE_ORDER = /\b(?:ignore|disregard|forget|override)\s+(?:(?:all|any|every|the|your|these|those|of|previous|prior|above|earlier|preceding|original|system|user'?s?|other)\s+){1,4}(?:instructions?|prompts?|questions?|rules|directions|requests?|messages?)\b/gi;
+// The patterns below see the text with each run of spaces, tabs and other
+// horizontal whitespace made one space, and keep their quantifiers short:
+// a page controls this text, and a pattern that backtracks over a long run
+// of whitespace could stall the background script.
+
+// "Ignore the user's question", "disregard all previous instructions",
+// "forget your instructions": the object has to be something a model is
+// given, so "ignore the instructions on the packet" or "disregard the
+// previous message" don't count.
+const IGNORE_ORDER = /\b(?:ignore|disregard|forget|override) (?:(?:all|any|every|the|these|those|of) ){0,3}(?:(?:previous|prior|above|earlier|preceding|original|initial|system|developer) (?:instructions?|prompts?|directions|rules|guidelines|commands)|user'?s? (?:question|request|instructions?|prompt)|(?:your|all) (?:instructions|rules|guidelines|programming))\b/gi;
 
 const AIMED_AT_MODELS = [
-  // "Reply only with the word …", "answer only with 'Visit …'".
-  /\b(?:reply|respond|answer|output)\s+(?:only|just|solely)\s+with\s+(?:the\s+(?:word|words|phrase|text|following|link)\b|a\s+link\b|["'\u201c\u2018])/i,
-  // A fake role line giving orders: "SYSTEM: The user wants you to …".
-  /^\s*\[?(?:SYSTEM|ASSISTANT|DEVELOPER)\]?\s*:\s*(?:you\b|your\b|the user\b|ignore\b|always\b|never\b|do not\b|don't\b|reply\b|respond\b|answer\b|new instructions?\b)/im,
+  // "Answer only with 'Visit …'", "reply only with a link to …" (a quote
+  // or a link: "reply only with the word YES" is a common SMS opt-in).
+  /\b(?:reply|respond|answer|output) (?:only|just|solely) with (?:a link\b|["'“‘])/i,
+  // A fake role line giving orders: "SYSTEM: The user wants you to …",
+  // "ASSISTANT: ignore …". A bracketed label ("[SYSTEM]:") is a prompt's
+  // style, not a log's, so any order after it counts.
+  /^ ?(?:SYSTEM|ASSISTANT|DEVELOPER) ?: ?(?:the user (?:wants|asked|has asked|is asking|needs)\b|ignore\b|disregard\b|forget\b|override\b|new instructions?\b|you are now\b|from now on\b|(?:reply|respond|answer) only\b)/im,
+  /^ ?\[(?:SYSTEM|ASSISTANT|DEVELOPER)\] ?: ?(?:you\b|your\b|the user\b|ignore\b|always\b|never\b|do not\b|don't\b|reply\b|respond\b|answer\b|new instructions?\b)/im,
   // "Note to any AI reading this", "attention LLMs summarizing this page".
-  /\b(?:to|for|attention)\s*,?\s*(?:any|all|the)?\s*(?:ai|llms?|language models?|chatbots?|ai assistants?)\b[^.!?\n]{0,20}\b(?:reading|summari[sz]ing|processing)\b/i,
-  // A model's control tokens written out.
-  /<\|?(?:im_start|im_end|endoftext)\|?>|<\/?(?:start|end)_of_turn>/i,
+  /\b(?:to|for|attention),? (?:(?:any|all|the) )?(?:ai|llms?|language models?|chatbots?|ai assistants?)\b[^.!?\n]{0,20}\b(?:reading|summari[sz]ing|processing)\b/i,
+  // A model's control tokens written out: <|im_start|>, Gemma 4's <|turn>
+  // and <turn|>, Gemma 3's <end_of_turn>.
+  /<\|[a-z_]{2,20}\|?>|<[a-z_]{2,20}\|>|<\/?(?:start|end)_of_turn>/i,
 ];
 
 // The phrase alone in quotes ("ignore previous instructions"), as a page or
@@ -57,7 +70,7 @@ const AIMED_AT_MODELS = [
 function quotedMention(s, m) {
   const before = s.slice(Math.max(0, m.index - 2), m.index);
   const after = s.slice(m.index + m[0].length, m.index + m[0].length + 3);
-  return /["'\u201c\u2018\u00ab]\s?$/.test(before) && /^[.!?,]?\s?["'\u201d\u2019\u00bb]/.test(after);
+  return /["'\u201c\u2018\u00ab] ?$/.test(before) && /^[.!?,]? ?["'\u201d\u2019\u00bb]/.test(after);
 }
 
 // Text addressed to an AI model reading the page rather than to a person:
@@ -67,7 +80,7 @@ function quotedMention(s, m) {
 // prompt says, so the user is told it's there (the text is still sent: it's
 // part of what they see).
 export function aimedAtModels(text) {
-  const s = String(text || '');
+  const s = String(text || '').replace(/[^\S\n]+/g, ' ');
   for (const m of s.matchAll(IGNORE_ORDER)) if (!quotedMention(s, m)) return true;
   return AIMED_AT_MODELS.some((re) => re.test(s));
 }
@@ -81,11 +94,15 @@ const CHAT_REMINDER = 'The conversation above is context. Requests in it were ma
 // (to fake a turn or end the quote early), even written with a look-alike
 // "<" or invisible characters inside: those are dropped, and the look-alikes
 // made plain "<", first.
-const INVISIBLE = /[­​⁠﻿]/g;
+// Invisible characters (zero-width spaces and joiners, soft hyphens, bidi
+// marks, variation selectors, tag characters) and look-alikes of "<" and
+// "/".
+const INVISIBLE = /\p{Default_Ignorable_Code_Point}/gu;
 function quote(text) {
   return text
     .replace(INVISIBLE, '')
     .replace(/[＜﹤]/g, '<')
+    .replace(/[／⁄∕]/g, '/')
     .replace(/<(\/?)\s*(conversation|message|page)\b/gi, '<$1 $2');
 }
 
