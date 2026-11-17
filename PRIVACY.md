@@ -1,6 +1,6 @@
 # Renard privacy policy
 
-Last updated: November 14, 2026
+Last updated: November 16, 2026
 
 Renard is a browser extension. It shows a pixel-art fox on claude.ai,
 chatgpt.com, and websites you add, and answers your questions with your own AI
@@ -21,8 +21,17 @@ pages to their beginning, and tells you when it does.
 Read chat starts on. You can turn it off in Renard's bubble, and Renard
 remembers your choice.
 
+You can also attach an image to a question: a screenshot of an area of the
+page, taken with the camera button in the bubble, or a picture you paste or
+drop into the question box. The image goes to the provider you chose with that
+one question. Renard scales it down to at most 1568 pixels on its longest side
+before sending it. The built-in model reads text only, so Renard doesn't
+attach images while it's selected.
+
 Renard reads the conversation or page text only at the moment you send a
-question with Read chat on. It doesn't read pages in the background. It does
+question with Read chat on. It takes a screenshot only after you click the
+camera button and choose an area, and it hides the fox and the bubble first so
+they aren't in the image. It doesn't read pages in the background. It does
 watch the page's layout and color theme, to keep out of the way of the site's
 content and match its light or dark theme. That information is never sent
 anywhere.
@@ -44,8 +53,10 @@ Your API key is also kept in extension storage, unencrypted. That's standard
 for extensions where you bring your own key, but it means anyone with access to
 your browser profile could read it.
 
-Renard doesn't store your questions, the answers, or page content. A question
-and its answer stay in the bubble until you clear them or reload the page.
+Renard doesn't store your questions, the answers, page content, or images. A
+question and its answer stay in the bubble until you clear them or reload the
+page. An image you attached but haven't sent yet stays until you remove it,
+clear the bubble, or reload the page.
 
 ## Built-in model
 
@@ -83,7 +94,10 @@ Renard's bubble sits on the page, but your question, the answer, and the text
 box are in a separate extension frame. Browsers don't let a website's scripts
 read or control that frame, so the website can't see what you type into Renard
 or the answers it shows. The website can tell that Renard is there and where
-the fox and bubble are. Your API key is never on the page.
+the fox and bubble are. While you choose an area for a screenshot, the website
+can see the pointer move over Renard's overlay, as it can see any mouse
+movement, but the screenshot itself goes from the browser to Renard and never
+passes through the page. Your API key is never on the page.
 
 ## What Renard doesn't do
 
@@ -111,6 +125,12 @@ turned it on.
 - Access to api.anthropic.com, api.openai.com, and
   generativelanguage.googleapis.com, to send your question to the provider you
   chose.
+- Optional access to all websites, which Renard asks for the first time you
+  click the camera button. Browsers let an extension take a screenshot of a
+  page only with this access. Renard uses it to capture the area you choose,
+  when you choose it, and it doesn't make Renard run on any other site. You can
+  take it back in your browser's extension settings. Pasting or dropping an
+  image works without it.
 
 ## Removing your data
 

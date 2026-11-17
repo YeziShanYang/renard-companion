@@ -22,6 +22,13 @@ With Read chat on (the default), the conversation on the page goes along with
 your question, for requests like "summarize this chat". On other sites the same
 switch is called Read page and sends the page's text.
 
+To ask about something on screen, click the camera in the bubble and drag over
+that area, or paste or drop an image into the question box. The image goes
+with your next question, with or without the chat. The first camera click asks
+your browser for access to all websites, which browsers require before an
+extension can take a screenshot. Images work with the Anthropic, OpenAI, and
+Gemini models. The built-in model reads text only.
+
 The fox's lines (`src/lines.json`) and animations are scripted. The model only
 writes answers and has no persona.
 
@@ -157,7 +164,8 @@ listens for the keys itself.
 There's no Renard server. Questions go straight from your browser to the
 provider you picked, and with the built-in model they don't leave your
 computer. The page's chat or text is read only when you send a question with
-Read chat on, and it isn't stored.
+Read chat on, and a screenshot is taken only when you click the camera and pick
+an area. Neither is stored.
 
 API keys are stored unencrypted in `storage.local`. Only the background script
 and the settings page read them. See [PRIVACY.md](PRIVACY.md) for the full
@@ -169,9 +177,9 @@ policy.
 src/
   manifest.json          MV3, written for Firefox; the Chrome build swaps in a service worker
   background/            API calls, settings, asset delivery, badge, shortcuts
-  shared/                constants, settings access, provider clients, prompt
+  shared/                constants, settings access, provider clients, prompt, image scaling
   engine/                built-in model (Transformers.js on WebGPU)
-  content/               on-page UI: the fox and the bubble's outline (closed Shadow DOM)
+  content/               on-page UI: the fox, the bubble's outline, the screenshot picker (closed Shadow DOM)
     adapters/            per-site chat reading, composer location, theme; web.js reads any other page
   bubble/                the bubble's contents, in an extension frame
   popup/                 toolbar menu (show Renard, this site, settings)
@@ -232,6 +240,14 @@ OpenAI Responses API, and the Gemini API's `streamGenerateContent` with
 When a model supports them, requests include optional fields: low effort,
 refusal fallbacks, reasoning effort, and Gemini's thinking level. If the model
 rejects one, the request is retried once without them.
+
+A screenshot starts in `content/region.js`, which dims the page and returns the
+area the user drags over. The background script captures the visible tab with
+`tabs.captureVisibleTab`, and `shared/image.js` crops it and scales it to at
+most 1568 pixels on the long edge and 1.15 megapixels. Pasted and dropped
+images are scaled the same way in the frame. Each provider gets the image
+before the question's text, as an Anthropic image block, an OpenAI
+`input_image`, or a Gemini `inlineData` part.
 
 ## Development
 
