@@ -271,7 +271,7 @@
     let closes = (u.match(/\)/g) || []).length;
     for (;;) {
       const last = u[u.length - 1];
-      if ('.,:;"\'!?*_~]'.includes(last)) u = u.slice(0, -1);
+      if ('.,:;"\'!?*_~]}'.includes(last)) u = u.slice(0, -1);
       else if (last === ')' && closes > opens) {
         u = u.slice(0, -1);
         closes--;
@@ -462,7 +462,8 @@
       }
 
       if (ch === 'h' && !inLink && !/[A-Za-z0-9]/.test(src[i - 1] || '')) {
-        const m = rest.match(/^https?:\/\/[^\s<]+/);
+        // A quote or > ends a bare URL (raw HTML such as src="…">).
+        const m = rest.match(/^https?:\/\/[^\s<>"]+/);
         const url = m && trimUrl(m[0]);
         const href = url && safeUrl(url);
         if (href) {

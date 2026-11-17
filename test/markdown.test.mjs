@@ -68,6 +68,10 @@ test('deep nesting is capped instead of overflowing the stack', () => {
 test('bare URLs become links without trailing punctuation', () => {
   const [p] = parse('See https://example.com/docs.');
   assert.deepEqual(p.children[1], { type: 'link', href: 'https://example.com/docs', children: [text('https://example.com/docs')] });
+  // Raw HTML around an address: the quote and > aren't part of it.
+  const [img] = parse('<img src="https://example.com/a.png"> and src="https://example.com/b?c=1"x');
+  const links = img.children.filter((c) => c.type === 'link').map((c) => c.href);
+  assert.deepEqual(links, ['https://example.com/a.png', 'https://example.com/b?c=1']);
   assert.deepEqual(p.children[2], text('.'));
 });
 
