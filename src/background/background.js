@@ -3,10 +3,14 @@
 // streaming port, and only ever receive non-secret state.
 import '../shared/constants.js';
 import '../shared/image.js';
-import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn } from '../shared/settings.js';
+import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn, changedSettings, moveKeysHere } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
 import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter, clipStart, aimedAtModels } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
+
+// This script moves API keys out of storage.local when it finds them there
+// (see settings.js).
+moveKeysHere();
 
 const R = globalThis.Renard;
 
@@ -941,11 +945,12 @@ async function updateBadge() {
 
 ext.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'otherSites', 'allSites', 'skippedSites', 'prefs', 'localModel'].some((k) => k in changes)) {
+  const changed = changedSettings(changes);
+  if (['spawned', 'provider', 'apiKeys', 'models', 'sites', 'otherSites', 'allSites', 'skippedSites', 'prefs', 'localModel'].some((k) => changed.includes(k))) {
     broadcastRefresh();
     updateBadge().catch(() => {});
   }
-  if (['otherSites', 'allSites', 'skippedSites'].some((k) => k in changes)) syncSiteScripts();
+  if (['otherSites', 'allSites', 'skippedSites'].some((k) => changed.includes(k))) syncSiteScripts();
 });
 
 ext.permissions.onAdded.addListener((permissions) => {

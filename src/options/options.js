@@ -1,5 +1,5 @@
 import '../shared/constants.js';
-import { ext, loadSettings, saveSettings, hasOrigins } from '../shared/settings.js';
+import { ext, loadSettings, saveSettings, hasOrigins, changedSettings } from '../shared/settings.js';
 import { listModels, ProviderError } from '../shared/providers.js';
 
 const R = globalThis.Renard;
@@ -222,8 +222,9 @@ function bindAi() {
     if (!pendingKey || pendingKey.provider === 'local') return;
     const value = pendingKey.value.replace(KEY_JUNK, '');
     if (value && !R.isApiKey(value)) return;
-    // One direct write: there may be no time for a round trip.
-    saveSettings({ apiKeys: { ...settings.apiKeys, [pendingKey.provider]: value } });
+    // Sent without waiting for a reply: there may be no time for a round
+    // trip, and the background script does the write.
+    ext.runtime.sendMessage({ type: 'renard:setEntry', key: 'apiKeys', entry: pendingKey.provider, value }).catch(() => {});
   });
 
   $('key-toggle').addEventListener('click', () => {
@@ -768,7 +769,7 @@ async function init() {
   // the toolbar popup, a bubble's Read chat switch, a finished download.
   ext.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local') return;
-    const keys = Object.keys(changes).filter((k) => Object.prototype.hasOwnProperty.call(R.DEFAULTS, k));
+    const keys = changedSettings(changes);
     if (!keys.length) return;
     const fresh = await loadSettings(keys);
     const prev = { ...settings };

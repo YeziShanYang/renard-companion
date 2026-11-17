@@ -74,17 +74,128 @@ export function cleanSetting(key, val) {
   return out;
 }
 
+// ---- API keys -----------------------------------------------------------------
+//
+// The keys live in an IndexedDB database of the extension's own origin,
+// not in storage.local: Firefox lets content scripts read storage.local
+// (Chrome only stops them from version 140), so a content process taken
+// over by a malicious page could read the keys there, on every https site
+// once Every website is on. Content scripts run in the page's origin and
+// can't open this database. Clearing site data, including Firefox's
+// "delete cookies and site data when Firefox is closed", leaves extension
+// origins alone. A key-free value in storage.local (apiKeysVersion) tells
+// every page and the background script that the keys changed.
+//
+// Keys found in storage.local (from an earlier version, or saved there when
+// the database couldn't be opened) are the newest copy, so they're read
+// first. The background script moves them into the database and deletes
+// them from storage.local. Only the background script does, so a settings
+// page whose database works can't take keys away from a background script
+// whose database doesn't.
+
+const SECRETS_DB = 'renard-secrets';
+let movesKeys = false;
+
+// Called by the background script.
+export function moveKeysHere() {
+  movesKeys = true;
+}
+
+function secrets(mode, use) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(SECRETS_DB, 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('secrets');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const tx = db.transaction('secrets', mode);
+      const req = use(tx.objectStore('secrets'));
+      tx.oncomplete = () => {
+        db.close();
+        resolve(req.result);
+      };
+      tx.onerror = tx.onabort = () => {
+        db.close();
+        reject(tx.error);
+      };
+    };
+  });
+}
+
+// This page's copy of the keys, dropped whenever they change (here or in
+// another page), so the background script doesn't open the database for
+// every page asking for its state.
+let keysCache;
+try {
+  ext.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && ('apiKeysVersion' in changes || 'apiKeys' in changes)) keysCache = undefined;
+  });
+} catch {
+  // not an extension page (unit tests)
+}
+
+async function loadApiKeys() {
+  if (keysCache !== undefined) return keysCache;
+  keysCache = await readApiKeys();
+  return keysCache;
+}
+
+async function readApiKeys() {
+  const { apiKeys: loose } = await ext.storage.local.get('apiKeys');
+  if (loose !== undefined) {
+    if (movesKeys) {
+      try {
+        await secrets('readwrite', (s) => s.put(cleanSetting('apiKeys', loose), 'apiKeys'));
+        await ext.storage.local.remove('apiKeys');
+      } catch {
+        // The database can't be opened: the keys stay in storage.local.
+      }
+    }
+    return loose;
+  }
+  try {
+    return await secrets('readonly', (s) => s.get('apiKeys'));
+  } catch {
+    return undefined;
+  }
+}
+
+async function saveApiKeys(apiKeys) {
+  keysCache = undefined;
+  try {
+    await secrets('readwrite', (s) => s.put(apiKeys, 'apiKeys'));
+  } catch {
+    await ext.storage.local.set({ apiKeys });
+    return;
+  }
+  // A copy left in storage.local would be read first.
+  await ext.storage.local.remove('apiKeys');
+  await ext.storage.local.set({ apiKeysVersion: `${Date.now()}-${Math.random().toString(36).slice(2)}` });
+}
+
 // Loads settings with defaults filled in. Pages that have no use for the API
 // keys (the toolbar popup) pass the keys they need, so they never read them.
 export async function loadSettings(keys = Object.keys(R.DEFAULTS)) {
-  const stored = await ext.storage.local.get(keys);
+  const plain = keys.filter((k) => k !== 'apiKeys');
+  const stored = plain.length ? await ext.storage.local.get(plain) : {};
+  if (keys.includes('apiKeys')) stored.apiKeys = await loadApiKeys();
   const out = {};
   for (const key of keys) out[key] = cleanSetting(key, stored[key]);
   return out;
 }
 
-export function saveSettings(partial) {
-  return ext.storage.local.set(partial);
+export async function saveSettings(partial) {
+  const { apiKeys, ...plain } = partial;
+  if (apiKeys !== undefined) await saveApiKeys(apiKeys);
+  if (Object.keys(plain).length) await ext.storage.local.set(plain);
+}
+
+// A storage.onChanged change set, with a change to the keys (made through
+// saveSettings) listed as apiKeys.
+export function changedSettings(changes) {
+  const keys = Object.keys(changes).filter((k) => Object.prototype.hasOwnProperty.call(R.DEFAULTS, k));
+  if ('apiKeysVersion' in changes && !keys.includes('apiKeys')) keys.push('apiKeys');
+  return keys;
 }
 
 export async function hasOrigins(origins) {

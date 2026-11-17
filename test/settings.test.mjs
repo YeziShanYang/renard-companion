@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanSetting } from '../src/shared/settings.js';
+import { cleanSetting, changedSettings } from '../src/shared/settings.js';
 
 const R = globalThis.Renard;
 
@@ -90,4 +90,10 @@ test('stored model records and fox positions are checked before use', () => {
   assert.deepEqual(models.gemini, { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', maxTokens: 65536, effortLow: true });
   const positions = cleanSetting('positions', { claude: { edge: 'left', y: 3 }, chatgpt: { edge: 'top', y: 0.5 }, 'web:a.com': { edge: 'right', y: NaN } });
   assert.deepEqual(positions, { claude: { edge: 'left', y: 1 } });
+});
+
+test('a change to the API keys shows up as apiKeys, without the keys in storage.local', () => {
+  const changed = changedSettings({ apiKeysVersion: { newValue: 2 }, provider: { newValue: 'openai' }, 'fox:3': {} });
+  assert.deepEqual(changed.sort(), ['apiKeys', 'provider']);
+  assert.deepEqual(changedSettings({ apiKeys: {}, apiKeysVersion: {} }), ['apiKeys']);
 });

@@ -178,9 +178,10 @@ computer. The page's chat or text is read only when you send a question with
 Read chat on, and a screenshot is taken only when you click the camera and pick
 an area. Neither is stored.
 
-API keys are stored unencrypted in `storage.local`. Only the background script
-and the settings page read them. See [PRIVACY.md](PRIVACY.md) for the full
-policy.
+API keys are stored unencrypted in an IndexedDB database of the extension's own
+origin, which Renard's page scripts and the pages themselves can't open. Only
+the background script and the settings page read them. See
+[PRIVACY.md](PRIVACY.md) for the full policy.
 
 ## How it works
 

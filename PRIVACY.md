@@ -50,9 +50,10 @@ storage on your device and aren't sent anywhere. Built-in model files you
 download are kept there too, until you delete them in settings or uninstall
 Renard.
 
-Your API key is also kept in extension storage, unencrypted. That's standard
-for extensions where you bring your own key, but it means anyone with access to
-your browser profile could read it.
+Your API key is also kept on your device, unencrypted, in a database that only
+Renard's settings page and background script can open. Websites and Renard's
+own page scripts can't read it. Anyone with access to your browser profile
+could, as with most extensions where you bring your own key.
 
 Renard doesn't store your questions, the answers, page content, or images. A
 question and its answer stay in the bubble until you clear them or reload the
