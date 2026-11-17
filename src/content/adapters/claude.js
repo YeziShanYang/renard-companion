@@ -16,9 +16,7 @@
   R.adapters.claude = {
     readChat() {
       const nodes = U.outermost(document.querySelectorAll(`${USER}, ${ASSISTANT}`));
-      const turns = U.mergeTurns(
-        nodes.map((el) => ({ role: el.matches(USER) ? 'user' : 'assistant', text: U.textOf(el) })),
-      );
+      const turns = U.readTurns(nodes, (el) => ({ role: el.matches(USER) ? 'user' : 'assistant', text: U.messageText(el) }));
       if (turns.length === 0 && /^\/chat\//.test(location.pathname)) {
         throw new Error('No messages found on this claude.ai chat page');
       }

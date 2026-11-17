@@ -75,6 +75,159 @@
     return out;
   }
 
+  // ---- message text ------------------------------------------------------
+
+  // Elements whose text is part of the interface, not the message: buttons
+  // ("Copy", "Edit", "Thought for 12s"), form controls, media and scripts.
+  const NOT_TEXT = new Set(['BUTTON', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'INPUT', 'SELECT', 'TEXTAREA', 'IFRAME', 'CANVAS', 'VIDEO', 'AUDIO', 'IMG', 'svg']);
+
+  function unread(el, cs) {
+    if (NOT_TEXT.has(el.tagName) || el.hidden || el.getAttribute('aria-hidden') === 'true') return true;
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.contentVisibility === 'hidden') return true;
+    // Screen-reader-only text ("ChatGPT said:"): a box of a pixel or less.
+    if ((cs.position === 'absolute' || cs.position === 'fixed') && parseFloat(cs.width) <= 1 && parseFloat(cs.height) <= 1) return true;
+    // Collapsed: no height, and nothing shown past it (a closed thinking block).
+    return parseFloat(cs.height) === 0 && /hidden|clip/.test(cs.overflowY);
+  }
+
+  const keepsSpace = (cs) => /^(pre|break-spaces)/.test(cs.whiteSpace);
+  const FENCE = '```';
+
+  // The text of one chat message as the reader sees it, like innerText
+  // without the interface inside the message. Code blocks come out fenced,
+  // without their header, KaTeX math as its TeX source, and list items with
+  // their markers, indented by nesting.
+  //
+  // The text is kept in pieces, with the last few characters copied aside
+  // for the checks, so each check costs the same however long the message
+  // already is.
+  function messageText(root) {
+    const parts = [];
+    let tail = ''; // the last characters written
+    let afterMarker = false; // a list marker was the last thing written
+    const TAIL = 64;
+    const write = (s) => {
+      if (!s) return;
+      parts.push(s);
+      tail = s.length >= TAIL ? s.slice(-TAIL) : (tail + s).slice(-TAIL);
+      afterMarker = false;
+    };
+    const refreshTail = () => {
+      tail = '';
+      for (let i = parts.length - 1; i >= 0 && tail.length < TAIL; i--) tail = parts[i].slice(-(TAIL - tail.length)) + tail;
+    };
+    // Drops the last n characters, or trailing spaces and tabs (n = null).
+    const dropEnd = (n) => {
+      while (parts.length) {
+        const last = parts[parts.length - 1];
+        const kept = n === null ? last.replace(/[ \t]+$/, '') : last.slice(0, Math.max(0, last.length - n));
+        if (n !== null) n -= last.length - kept.length;
+        if (kept) parts[parts.length - 1] = kept;
+        else parts.pop();
+        if (kept || n === 0) break;
+      }
+      refreshTail();
+    };
+    const endLines = (n) => {
+      // Nothing between a list marker and its item's first paragraph.
+      if (!parts.length || afterMarker) return;
+      if (/[ \t]$/.test(tail)) dropEnd(null);
+      const have = /\n*$/.exec(tail)[0].length;
+      if (have < n) write('\n'.repeat(n - have));
+    };
+    const counts = new Map(); // ordered list -> number of its last item
+    const walk = (node, pre, depth) => {
+      for (let child = node.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) {
+          let t = child.data;
+          if (!pre) {
+            t = t.replace(/[ \t\n\r\f]+/g, ' ');
+            if (!parts.length || /[ \n\t]$/.test(tail)) t = t.replace(/^ /, '');
+          }
+          if (t) {
+            const marker = afterMarker;
+            write(t);
+            afterMarker = marker && t === ' ';
+          }
+          continue;
+        }
+        if (child.nodeType !== 1) continue;
+        const el = child;
+        if (el.tagName === 'BR') {
+          write('\n');
+          continue;
+        }
+        const cs = getComputedStyle(el);
+        if (unread(el, cs)) continue;
+        if (el.classList.contains('katex')) {
+          const tex = el.querySelector('annotation[encoding="application/x-tex"]');
+          if (tex) {
+            const source = tex.textContent.trim();
+            if (el.parentElement && el.parentElement.classList.contains('katex-display')) {
+              endLines(1);
+              write('$$' + source + '$$');
+              endLines(1);
+            } else {
+              write('$' + source + '$');
+            }
+            continue;
+          }
+        }
+        if (el.tagName === 'PRE') {
+          const code = el.querySelector('code');
+          if (code) {
+            const lang = (/(?:^|\s)language-([\w+#.-]+)/.exec(code.className) || [])[1] || '';
+            endLines(1);
+            // A language label shown above the block (claude.ai puts it
+            // outside the <pre>) is already in the fence.
+            const label = lang.toLowerCase() + '\n';
+            // The tail holds more than the label unless the label is all
+            // there is, so the label is on a line of its own when what
+            // comes before it ends a line or is nothing.
+            if (lang && label.length < TAIL && tail.toLowerCase().endsWith(label)) {
+              const before = tail.slice(0, -label.length);
+              if (!before || before.endsWith('\n')) dropEnd(label.length);
+            }
+            write(FENCE + lang + '\n' + code.textContent.replace(/\n$/, '') + '\n' + FENCE);
+            endLines(1);
+            continue;
+          }
+        }
+        const display = cs.display;
+        const block = !display.startsWith('inline') && display !== 'contents' && display !== 'table-cell' && !display.startsWith('ruby');
+        // innerText puts a blank line around paragraphs and headings.
+        const lines = /^(P|H[1-6])$/.test(el.tagName) ? 2 : 1;
+        if (block) endLines(lines);
+        else if (display === 'table-cell' && parts.length && !tail.endsWith('\n')) write('\t');
+        // List markers, which innerText leaves out.
+        const list = el.tagName === 'LI' ? el.parentElement : null;
+        if (list && (list.tagName === 'UL' || list.tagName === 'OL')) {
+          const indent = '  '.repeat(Math.max(0, depth - 1));
+          if (list.tagName === 'UL') {
+            write(indent + '- ');
+          } else {
+            const n = counts.has(list) ? counts.get(list) + 1 : Number.isFinite(list.start) ? list.start : 1;
+            counts.set(list, n);
+            write(`${indent}${n}. `);
+          }
+          afterMarker = true;
+        }
+        walk(el, pre || keepsSpace(cs), depth + (el.tagName === 'UL' || el.tagName === 'OL' ? 1 : 0));
+        if (block) endLines(lines);
+      }
+    };
+    walk(root, keepsSpace(getComputedStyle(root)), 0);
+    return parts.join('');
+  }
+
+  function tidy(text) {
+    return text
+      .replace(/ /g, ' ')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   function luminance([r, g, b]) {
     const lin = (c) => {
       const s = c / 255;
@@ -139,6 +292,25 @@
         .replace(/[ \t]+\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
+    },
+
+    messageText(el) {
+      return tidy(messageText(el));
+    },
+
+    // Chat turns from message nodes, read newest first until there is more
+    // than enough text, so a very long chat doesn't read every old message.
+    // read(node) returns { role, text } or null.
+    readTurns(nodes, read, maxChars = 200000) {
+      const turns = [];
+      let used = 0;
+      for (let i = nodes.length - 1; i >= 0 && used < maxChars; i--) {
+        const t = read(nodes[i]);
+        if (!t || !t.text) continue;
+        turns.push(t);
+        used += t.text.length;
+      }
+      return this.mergeTurns(turns.reverse());
     },
 
     // Joins consecutive pieces from the same speaker into one turn.

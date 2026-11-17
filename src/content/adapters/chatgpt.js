@@ -10,15 +10,14 @@
   R.adapters.chatgpt = {
     readChat() {
       const nodes = U.outermost(document.querySelectorAll(MESSAGE));
-      const turns = U.mergeTurns(
-        nodes
-          .map((el) => {
-            const role = el.getAttribute('data-message-author-role');
-            const content = role === 'assistant' ? el.querySelector('.markdown') || el : el.querySelector('.whitespace-pre-wrap') || el;
-            return { role, text: U.textOf(content) };
-          })
-          .filter((t) => t.role === 'user' || t.role === 'assistant'),
-      );
+      const turns = U.readTurns(nodes, (el) => {
+        const role = el.getAttribute('data-message-author-role');
+        if (role !== 'user' && role !== 'assistant') return null;
+        // A reply can hold more than one .markdown (a reasoning summary, say),
+        // so the whole message is read, minus its buttons and hidden parts.
+        const content = role === 'user' ? el.querySelector('.whitespace-pre-wrap') || el : el;
+        return { role, text: U.messageText(content) };
+      });
       if (turns.length === 0 && /\/c\/[\w-]+/.test(location.pathname)) {
         throw new Error('No messages found on this ChatGPT conversation page');
       }
