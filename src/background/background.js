@@ -767,12 +767,26 @@ function contentScriptCss() {
 // Puts Renard on an open tab now, unless this copy of Renard already runs
 // there: a second copy of the files would start over the state some of
 // them keep.
-async function injectRenard(tabId) {
-  const target = { tabId };
-  const [probe] = await ext.scripting.executeScript({ target, func: () => Boolean(globalThis.Renard && globalThis.Renard.booted) });
-  if (probe && probe.result === true) return;
-  await ext.scripting.insertCSS({ target, files: contentScriptCss() });
-  await ext.scripting.executeScript({ target, files: contentScriptFiles() });
+//
+// tab: a tabs.query() result. A discarded tab (unloaded to save memory) is
+// skipped: the registered scripts reach it when it loads, and Firefox can
+// leave a script injected into one waiting forever. Each tab gets ten
+// seconds, so one stuck tab can't hold up the rest.
+async function injectRenard(tab) {
+  if (tab.discarded) return;
+  const target = { tabId: tab.id };
+  const inject = async () => {
+    const [probe] = await ext.scripting.executeScript({ target, func: () => Boolean(globalThis.Renard && globalThis.Renard.booted) });
+    if (probe && probe.result === true) return;
+    await ext.scripting.insertCSS({ target, files: contentScriptCss() });
+    await ext.scripting.executeScript({ target, files: contentScriptFiles() });
+  };
+  let timer = 0;
+  try {
+    await Promise.race([inject(), new Promise((resolve, reject) => (timer = setTimeout(() => reject(new Error('Timed out')), 10000)))]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 let siteScripts = Promise.resolve();
 
@@ -863,7 +877,7 @@ async function injectHost(host) {
     // no matching tabs
   }
   let blocked = 0;
-  for (const t of tabs) await injectRenard(t.id).catch(() => blocked++);
+  for (const t of tabs) await injectRenard(t).catch(() => blocked++);
   return { tabs: tabs.length, blocked };
 }
 
@@ -904,7 +918,7 @@ async function injectWebTabs() {
     } catch {
       continue;
     }
-    if (R.isWebHost(host) && !skippedSites.includes(host)) await injectRenard(t.id).catch(() => {});
+    if (R.isWebHost(host) && !skippedSites.includes(host)) await injectRenard(t).catch(() => {});
   }
 }
 
@@ -1001,7 +1015,7 @@ async function injectOpenTabs() {
   } catch {
     return;
   }
-  for (const t of tabs) await injectRenard(t.id).catch(() => {});
+  for (const t of tabs) await injectRenard(t).catch(() => {});
   if (all) await injectWebTabs();
 }
 
