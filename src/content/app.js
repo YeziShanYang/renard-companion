@@ -30,6 +30,7 @@
     permission: { line: 'noPermission', settings: true },
     keyInvalid: { line: 'keyInvalid', settings: true },
     modelUnavailable: { line: 'modelUnavailable', settings: true },
+    imageUnsupported: { line: 'imageUnsupported', settings: true },
     rateLimited: { line: 'networkError' },
     network: { line: 'networkError' },
     refused: { line: 'refused', discard: true },
@@ -1078,6 +1079,8 @@
           return `${p} didn't accept the API key. Check it in settings.`;
         case 'modelUnavailable':
           return `That model isn't available for this ${p} key. Pick another in settings.`;
+        case 'imageUnsupported':
+          return `That ${p} model can't read images. Pick another in settings, or ask without the screenshot.`;
         case 'localMissing':
         case 'noGpu':
           return m.message;

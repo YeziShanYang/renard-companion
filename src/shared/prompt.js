@@ -85,7 +85,16 @@ export function trimPage(page, max = LIMITS.pageChars) {
   };
 }
 
-export function buildUserMessage(question, chat, page) {
+// With { screenshot: true }, the message opens by saying an image came with
+// the question (the provider request carries it before this text).
+export function buildUserMessage(question, chat, page, { screenshot = false } = {}) {
+  const text = contextMessage(question, chat, page);
+  if (!screenshot) return text;
+  const note = 'The user attached a screenshot of part of their screen.';
+  return text === question ? `${note}\n\nQuestion: ${question}` : `${note}\n\n${text}`;
+}
+
+function contextMessage(question, chat, page) {
   if (page && page.text) {
     const intro = ['The user is looking at this web page. Its text is included for context.'];
     if (page.partial) intro.push(`Only the start of the page is included (${page.text.length} of ${page.total} characters).`);

@@ -334,3 +334,67 @@ test('Gemini: bad key, quota, and stream errors map to Renard states', async () 
     (e) => e.kind === 'network' && e.message === 'The model is overloaded.',
   );
 });
+
+test('an attached image goes before the text in each provider request', async () => {
+  const image = { mediaType: 'image/png', data: 'iVBORw0KGgo=' };
+  const bodies = {};
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    const name = u.includes('anthropic') ? 'anthropic' : u.includes('openai') ? 'openai' : 'gemini';
+    bodies[name] = JSON.parse(init.body);
+    if (name === 'anthropic') return sse(['data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n']);
+    if (name === 'openai') return sse(['data: {"type":"response.completed","response":{}}\n\n']);
+    return sse(['data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n']);
+  };
+  const common = { apiKey: 'k', system: 'sys', user: 'what is this?', images: [image], onDelta: () => {} };
+  await streamAnswer('anthropic', { ...common, model: { id: 'claude-x', maxTokens: 4096 } });
+  await streamAnswer('openai', { ...common, model: { id: 'gpt-4o' } });
+  await streamAnswer('gemini', { ...common, model: { id: 'gemini-x' } });
+
+  assert.deepEqual(bodies.anthropic.messages, [
+    {
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } },
+        { type: 'text', text: 'what is this?' },
+      ],
+    },
+  ]);
+  assert.deepEqual(bodies.openai.input, [
+    {
+      role: 'user',
+      content: [
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=' },
+        { type: 'input_text', text: 'what is this?' },
+      ],
+    },
+  ]);
+  assert.deepEqual(bodies.gemini.contents, [
+    { role: 'user', parts: [{ inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } }, { text: 'what is this?' }] },
+  ]);
+});
+
+test('without images, each request keeps its plain-text shape', async () => {
+  const bodies = {};
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    bodies[u.includes('anthropic') ? 'anthropic' : 'openai'] = JSON.parse(init.body);
+    return sse(['data: {"type":"response.completed","response":{}}\n\n']);
+  };
+  const common = { apiKey: 'k', system: 'sys', user: 'q', images: [], onDelta: () => {} };
+  await streamAnswer('anthropic', { ...common, model: { id: 'claude-x' } });
+  await streamAnswer('openai', { ...common, model: { id: 'gpt-4o' } });
+  assert.deepEqual(bodies.anthropic.messages, [{ role: 'user', content: 'q' }]);
+  assert.equal(bodies.openai.input, 'q');
+});
+
+test('a model that rejects images reports imageUnsupported; other 400s stay as they were', async () => {
+  const image = { mediaType: 'image/png', data: 'AAAA' };
+  const call = (message, images) => {
+    globalThis.fetch = async () => json(400, { error: { message, type: 'invalid_request_error' } });
+    return streamAnswer('openai', { apiKey: 'k', model: { id: 'gpt-4o' }, system: '', user: 'q', images, onDelta: () => {} });
+  };
+  await assert.rejects(call('Invalid content type. image_url is only supported by certain models.', [image]), { kind: 'imageUnsupported' });
+  await assert.rejects(call('Image exceeds the 5 MB maximum.', [image]), { kind: 'unknown' });
+  await assert.rejects(call('Invalid content type. image_url is only supported by certain models.', []), { kind: 'unknown' });
+});

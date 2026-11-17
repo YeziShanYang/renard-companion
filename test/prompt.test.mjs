@@ -153,3 +153,12 @@ test('the built-in model is told only about context that is attached', async () 
   assert.match(page, /web page the user is viewing/);
   assert.doesNotMatch(page, /AI assistant/);
 });
+
+test('buildUserMessage says when a screenshot is attached', () => {
+  const note = 'The user attached a screenshot of part of their screen.';
+  assert.equal(buildUserMessage('what is this?', null, null, { screenshot: true }), `${note}\n\nQuestion: what is this?`);
+  const withChat = buildUserMessage('and this?', { siteName: 'Claude', turns: [{ role: 'user', text: 'hi' }] }, null, { screenshot: true });
+  assert.ok(withChat.startsWith(`${note}\n\nThe user is looking at this conversation on Claude.`));
+  assert.ok(withChat.endsWith('Question: and this?'));
+  assert.equal(buildUserMessage('q', null, null), 'q');
+});

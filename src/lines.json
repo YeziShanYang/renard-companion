@@ -15,6 +15,7 @@
   "noGpu": ["This browser can't run my built-in brain. Add an API key in settings instead."],
   "keyInvalid": ["Hmm, that key didn't work. Mind checking it in settings?"],
   "modelUnavailable": ["That model's not available. Pick another in settings?"],
+  "imageUnsupported": ["This model can't see pictures. Pick another in settings?"],
   "networkError": ["Oops, I couldn't get an answer. Try again in a moment?"],
   "chatUnreadable": ["I couldn't read this chat, so I'll answer without it."],
   "pageUnreadable": ["I couldn't read this page, so I'll answer without it."],

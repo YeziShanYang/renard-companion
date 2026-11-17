@@ -28,8 +28,8 @@ const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 const MAX_OUTPUT_TOKENS = 16000;
 
 export class ProviderError extends Error {
-  // kind: keyMissing | keyInvalid | modelUnavailable | rateLimited | network
-  //       | permission | refused | aborted | unknown
+  // kind: keyMissing | keyInvalid | modelUnavailable | imageUnsupported
+  //       | rateLimited | network | permission | refused | aborted | unknown
   constructor(kind, message, { status = 0 } = {}) {
     super(message || kind);
     this.name = 'ProviderError';
@@ -306,12 +306,31 @@ export async function listModels(provider, apiKey, { signal } = {}) {
   throw new ProviderError('unknown', `Unknown provider: ${provider}`);
 }
 
-async function streamAnthropic({ apiKey, model, system, user, signal, onDelta }) {
+// Each request puts the attached images before the question's text, the
+// order Anthropic recommends. An image is { mediaType, data }, with the data
+// in base64. Without images, every request keeps its plain-text shape.
+function anthropicContent(user, images) {
+  if (!images.length) return user;
+  const parts = images.map((img) => ({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.data } }));
+  return [...parts, { type: 'text', text: user }];
+}
+
+function openaiInput(user, images) {
+  if (!images.length) return user;
+  const parts = images.map((img) => ({ type: 'input_image', image_url: `data:${img.mediaType};base64,${img.data}` }));
+  return [{ role: 'user', content: [...parts, { type: 'input_text', text: user }] }];
+}
+
+function geminiParts(user, images) {
+  return [...images.map((img) => ({ inlineData: { mimeType: img.mediaType, data: img.data } })), { text: user }];
+}
+
+async function streamAnthropic({ apiKey, model, system, user, images, signal, onDelta }) {
   const base = {
     model: model.id,
     max_tokens: Math.min(MAX_OUTPUT_TOKENS, model.maxTokens || 4096),
     system,
-    messages: [{ role: 'user', content: user }],
+    messages: [{ role: 'user', content: anthropicContent(user, images) }],
     stream: true,
   };
   const optional = {};
@@ -348,8 +367,8 @@ async function streamAnthropic({ apiKey, model, system, user, signal, onDelta })
   return { stopReason };
 }
 
-async function streamOpenAI({ apiKey, model, system, user, signal, onDelta }) {
-  const base = { model: model.id, instructions: system, input: user, stream: true, store: false };
+async function streamOpenAI({ apiKey, model, system, user, images, signal, onDelta }) {
+  const base = { model: model.id, instructions: system, input: openaiInput(user, images), stream: true, store: false };
   const optional = {};
   if (isOpenAIReasoningModel(model.id)) optional.reasoning = { effort: 'low' };
 
@@ -400,10 +419,10 @@ async function streamOpenAI({ apiKey, model, system, user, signal, onDelta }) {
   return { stopReason };
 }
 
-async function streamGemini({ apiKey, model, system, user, signal, onDelta }) {
+async function streamGemini({ apiKey, model, system, user, images, signal, onDelta }) {
   const base = {
     systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: user }] }],
+    contents: [{ role: 'user', parts: geminiParts(user, images) }],
   };
   const optional = {};
   if (model.effortLow) optional.generationConfig = { thinkingConfig: { thinkingLevel: 'low' } };
@@ -436,14 +455,25 @@ async function streamGemini({ apiKey, model, system, user, signal, onDelta }) {
   return { stopReason: finish === 'STOP' ? 'end_turn' : finish ? finish.toLowerCase() : null };
 }
 
+// A rejected request that carried an image and names image support in its
+// message ("image_url is only supported by certain models") comes from a
+// model that can't read images.
+function imageUnsupported(err) {
+  return err.kind === 'unknown' && err.status === 400 && /support/i.test(err.message) && /image|vision|multimodal/i.test(err.message);
+}
+
 export async function streamAnswer(provider, params) {
   if (!params.apiKey) throw new ProviderError('keyMissing', 'No API key');
+  const images = Array.isArray(params.images) ? params.images : [];
+  const args = { ...params, images };
   try {
-    if (provider === 'anthropic') return await streamAnthropic(params);
-    if (provider === 'openai') return await streamOpenAI(params);
-    if (provider === 'gemini') return await streamGemini(params);
+    if (provider === 'anthropic') return await streamAnthropic(args);
+    if (provider === 'openai') return await streamOpenAI(args);
+    if (provider === 'gemini') return await streamGemini(args);
   } catch (err) {
-    throw toProviderError(err);
+    const e = toProviderError(err);
+    if (images.length && imageUnsupported(e)) throw new ProviderError('imageUnsupported', e.message, { status: e.status });
+    throw e;
   }
   throw new ProviderError('unknown', `Unknown provider: ${provider}`);
 }
