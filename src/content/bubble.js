@@ -403,6 +403,17 @@
       this.keep('note', { type: 'note', text });
     }
 
+    // A streamed piece of the answer goes over by itself, so a long answer
+    // is never resent or compared on each piece. A reloaded frame gets the
+    // whole answer from the kept state.
+    appendAnswer(piece) {
+      if (!piece) return;
+      this.markdown += piece;
+      this.state.delete('answer');
+      this.state.set('answer', { type: 'answer', markdown: this.markdown, streaming: true });
+      this.post({ type: 'delta', text: piece });
+    }
+
     // Streaming text goes over as deltas, so a long answer isn't resent on
     // every update; a reloaded frame gets the whole answer.
     setAnswer(markdown, { streaming = false } = {}) {

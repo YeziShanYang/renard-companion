@@ -1243,8 +1243,9 @@
           this.contextNote = notes.join(' ');
           if (this.contextNote) this.bubble.setNote(this.contextNote);
         } else if (m.type === 'delta') {
-          text += m.text;
-          this.bubble.setAnswer(text, { streaming: true });
+          const piece = String(m.text || '');
+          text += piece;
+          this.bubble.appendAnswer(piece);
         } else if (m.type === 'done') {
           release();
           this.answered(text, { limited: m.limited === true });
