@@ -197,34 +197,44 @@ function errorOf(body) {
   return (b && typeof b === 'object' && b.error) || null;
 }
 
-async function request(url, init) {
+// The response to a request, or with { json: true } its parsed body. The
+// first-byte timer also covers reading an error body or a JSON body, which
+// can stall too: aborting the signal cuts the read off.
+async function request(url, init, { json = false } = {}) {
   const late = new AbortController();
   const timer = setTimeout(() => late.abort(), TIMEOUTS.firstByteMs);
   const signal = init.signal ? AbortSignal.any([init.signal, late.signal]) : late.signal;
-  let res;
+  const timedOut = () => late.signal.aborted && !(init.signal && init.signal.aborted);
   try {
-    res = await fetch(url, { ...init, signal });
-  } catch (err) {
-    if (late.signal.aborted && !(init.signal && init.signal.aborted)) {
-      throw new ProviderError('network', "The provider didn't respond within a minute. Try again.");
+    let res;
+    try {
+      res = await fetch(url, { ...init, signal });
+    } catch (err) {
+      if (timedOut()) throw new ProviderError('network', "The provider didn't respond within a minute. Try again.");
+      throw toProviderError(err);
     }
-    throw toProviderError(err);
-  } finally {
-    clearTimeout(timer);
-  }
-  if (!res.ok) {
+    if (res.ok) {
+      if (!json) return res;
+      try {
+        return await res.json();
+      } catch (err) {
+        if (timedOut()) throw new ProviderError('network', "The provider didn't respond within a minute. Try again.");
+        throw toProviderError(err);
+      }
+    }
     let body = null;
     try {
       body = await res.json();
     } catch {
-      // Non-JSON error body; fall back to the status line.
+      // Non-JSON or cut-off error body; fall back to the status line.
     }
     const err = errorOf(body);
     const text = typeof err === 'string' ? err : err && typeof err.message === 'string' ? err.message : '';
     const message = text || res.statusText || `HTTP ${res.status}`;
     throw new ProviderError(classifyHttpError(res.status, err ? { error: err } : null), message, { status: res.status });
+  } finally {
+    clearTimeout(timer);
   }
-  return res;
 }
 
 // Sends with optional parameters first. If the provider rejects the request
@@ -302,8 +312,7 @@ export async function listModels(provider, apiKey, { signal } = {}) {
       const url = new URL('/v1/models', ANTHROPIC_BASE);
       url.searchParams.set('limit', '1000');
       if (after) url.searchParams.set('after_id', after);
-      const res = await request(url, { headers: anthropicHeaders(apiKey), signal });
-      const body = await res.json();
+      const body = await request(url, { headers: anthropicHeaders(apiKey), signal }, { json: true });
       for (const m of body.data || []) {
         models.push({
           id: m.id,
@@ -318,8 +327,7 @@ export async function listModels(provider, apiKey, { signal } = {}) {
     return models; // newest first, as the API returns them
   }
   if (provider === 'openai') {
-    const res = await request(new URL('/v1/models', OPENAI_BASE), { headers: openaiHeaders(apiKey), signal });
-    const body = await res.json();
+    const body = await request(new URL('/v1/models', OPENAI_BASE), { headers: openaiHeaders(apiKey), signal }, { json: true });
     return (body.data || [])
       .filter((m) => isOpenAIChatModel(m.id))
       .sort((a, b) => (b.created || 0) - (a.created || 0))
@@ -332,8 +340,7 @@ export async function listModels(provider, apiKey, { signal } = {}) {
       const url = new URL('/v1beta/models', GEMINI_BASE);
       url.searchParams.set('pageSize', '1000');
       if (token) url.searchParams.set('pageToken', token);
-      const res = await request(url, { headers: geminiHeaders(apiKey), signal });
-      const body = await res.json();
+      const body = await request(url, { headers: geminiHeaders(apiKey), signal }, { json: true });
       for (const m of body.models || []) {
         if (!isGeminiChatModel(m)) continue;
         const id = m.name.replace(/^models\//, '');

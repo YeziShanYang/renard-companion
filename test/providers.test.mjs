@@ -488,3 +488,29 @@ test('a provider that stalls before or during an answer times out with an error'
     Object.assign(TIMEOUTS, saved);
   }
 });
+
+test('an error body or a model list that stalls also times out', async () => {
+  const { TIMEOUTS } = await import('../src/shared/providers.js');
+  const saved = { ...TIMEOUTS };
+  Object.assign(TIMEOUTS, { firstByteMs: 50, idleMs: 50 });
+  // Headers arrive, then a body that never finishes (until the signal aborts it).
+  const stalled = (status) => (_url, init) => {
+    const body = new ReadableStream({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('{"error":'));
+        init.signal.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')));
+      },
+    });
+    return Promise.resolve(new Response(body, { status, headers: { 'content-type': 'application/json' } }));
+  };
+  try {
+    globalThis.fetch = stalled(500);
+    const t = performance.now();
+    await assert.rejects(streamAnswer('openai', { apiKey: 'k', model: { id: 'gpt-4o' }, system: '', user: 'q', onDelta() {} }), { status: 500 });
+    assert.ok(performance.now() - t < 1000);
+    globalThis.fetch = stalled(200);
+    await assert.rejects(listModels('openai', 'k'), (e) => e.kind === 'network' && /respond/.test(e.message));
+  } finally {
+    Object.assign(TIMEOUTS, saved);
+  }
+});
