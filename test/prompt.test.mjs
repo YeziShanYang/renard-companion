@@ -199,6 +199,10 @@ test('turnFilter keeps ordinary lines that start with a speaker word, and passes
   ]) {
     assert.deepEqual(run(answer), { out: answer, stops: 0 }, answer);
   }
+  const code = "Here's the file:\n\n```yaml\nservices:\n  db:\n    user: postgres\n```\n\nAnd in TypeScript:\n\n~~~ts\nuser: User;\n~~~\nDone.";
+  assert.deepEqual(run(code), { out: code, stops: 0 });
+  // After the block closes, a made-up turn is cut again.
+  assert.deepEqual(run('Here:\n```\nuser: x\n```\nUser: and now?'), { out: 'Here:\n```\nuser: x\n```\n', stops: 1 });
   const summary = 'Here is a summary of the chat:\n\n**User:** asked about foxes.\n**Assistant:** explained their diet.';
   assert.deepEqual(run(summary, { cut: false }), { out: summary, stops: 0 });
   assert.equal(run(summary).stops, 1);

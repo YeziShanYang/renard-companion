@@ -156,10 +156,14 @@ function contextMessage(question, chat, page) {
 // Question: …]". A bare "Question:" is a heading the model uses in real
 // answers, and "User's goal:", "AI safety:" or "User interface:" are
 // ordinary text.
+// Lines inside a fenced code block are never cut, so "user: postgres" in a
+// docker-compose file or "user: User;" in TypeScript stays.
 // With cut: false, the text passes through whole. That's for answers about
 // an attached chat, whose summary names the speakers ("**User:** asked …")
 // just as a made-up turn would.
 const MADE_UP_TURN = /^\s*[[(*#>_\s]*(user|human|ai assistant|assistant|ai)(\s+(question|response|answer|message|reply|query))?\s*[\])*_]*\s*:/i;
+
+const FENCE_LINE = /^\s{0,3}(`{3,}|~{3,})/;
 
 export function turnFilter(emit, stop, { cut = true } = {}) {
   if (!cut) return { push: (text) => emit(String(text)), end() {}, stopped: false };
@@ -167,8 +171,11 @@ export function turnFilter(emit, stop, { cut = true } = {}) {
   let open = false; // the current line passed the check and streams as is
   let shown = false;
   let stopped = false;
+  let inCode = false;
   const decide = () => {
-    if (shown && MADE_UP_TURN.test(held)) {
+    const fence = FENCE_LINE.test(held);
+    if (fence) inCode = !inCode;
+    else if (!inCode && shown && MADE_UP_TURN.test(held)) {
       stopped = true;
       held = '';
       stop();
