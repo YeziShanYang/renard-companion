@@ -117,7 +117,11 @@
         onActivate: () => this.activate(),
         onDragStart: () => this.dragStart(),
         onDragEnd: () => this.dragEnd(),
-        onHover: () => this.touch(),
+        // Pointing at the fox loads the bubble's frame, so it's ready to open.
+        onHover: () => {
+          this.touch();
+          this.bubble.prepare();
+        },
       });
       this.bubble = new R.Bubble({
         // Enter or the Ask/Stop button: stop an answer that is still coming,
@@ -156,6 +160,7 @@
           if (this.bubble.isOpen && !this.freePlaced && !this.bubble.el.dataset.resizing) this.placeBubble();
         },
       });
+      this.fox.button.addEventListener('focus', () => this.bubble.prepare());
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
       for (const stray of document.querySelectorAll(R.HOST_SELECTOR)) if (stray !== this.host) stray.remove();

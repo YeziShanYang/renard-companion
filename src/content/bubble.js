@@ -10,6 +10,12 @@
 // hold of the frame can't open a channel of its own. Every load of the frame
 // (a reload, or the page moving Renard's element) gets a new channel and a
 // replay of what the bubble shows.
+//
+// Chrome won't keep a page that holds an extension frame in its
+// back/forward cache, and decides that before the page could take the
+// frame out. So the frame is made only when it's first needed (the fox is
+// pointed at, focused or opened), and a page where Renard is never used
+// stays cacheable.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
   const { h } = R;
@@ -36,10 +42,11 @@
       this.instance = randomHex(12);
       this.key = randomHex(24);
       this.build();
-      this.connect();
+      this.registered = this.register();
     }
 
     build() {
+      // Not in the bubble until prepare() puts it there.
       this.frame = h('iframe', { class: 'bubble-frame', title: 'Renard', allow: 'clipboard-write' });
 
       // A resize handle on each corner; dragging one moves that corner while
@@ -53,32 +60,44 @@
       this.el = h(
         'section',
         { class: 'bubble px-box', 'data-open': 'false', 'data-side': 'left', 'data-expanded': 'false' },
-        [R.tail(5), this.frame, ...this.corners],
+        [R.tail(5), ...this.corners],
       );
     }
 
-    // Registers the key (retrying a transient failure), then loads the
-    // frame. Each time the frame loads, it gets a new channel.
-    async connect() {
+    // Registers the key, retrying a transient failure. Resolves to whether
+    // it was registered.
+    async register() {
       for (const delay of [0, 500, 1500, 4000]) {
         if (delay) await new Promise((r) => setTimeout(r, delay));
-        if (this.destroyed || !R.contextAlive()) return; // extension reloaded: this copy is leaving
+        if (this.destroyed || !R.contextAlive()) return false; // extension reloaded: this copy is leaving
         try {
           await R.send('renard:bubbleKey', { instance: this.instance, key: this.key });
           break;
         } catch {
-          if (delay === 4000) return;
+          if (delay === 4000) return false;
         }
       }
-      if (this.destroyed) return;
-      this.frame.addEventListener('load', () => this.handOver());
+      if (this.destroyed) return false;
       // A page that unloads without unmounting still lets its key go.
       // A pagehide the page dispatched itself is ignored.
       this.onPageHide = (e) => {
         if (e.isTrusted && !e.persisted) R.send('renard:bubbleKeyDrop', { instance: this.instance }).catch(() => {});
       };
       addEventListener('pagehide', this.onPageHide);
-      this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);
+      return true;
+    }
+
+    // Makes and loads the frame, once. Each time it loads, it gets a new
+    // channel.
+    prepare() {
+      if (this.prepared || this.destroyed) return;
+      this.prepared = true;
+      this.registered.then((ok) => {
+        if (!ok || this.destroyed) return;
+        this.frame.addEventListener('load', () => this.handOver());
+        this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);
+        this.el.insertBefore(this.frame, this.corners[0]);
+      });
     }
 
     handOver() {
@@ -90,12 +109,16 @@
       this.frame.contentWindow.postMessage({ renard: 'bubble', key: this.key }, origin, [channel.port2]);
       this.port = channel.port1;
       for (const m of this.state.values()) this.post(m);
+      // Focus asked for while the frame was loading: the frame can take it
+      // only from this page.
+      if (this.pending.has('focus') || this.pending.has('focusInput')) this.frame.focus();
       for (const m of this.pending.values()) this.post(m);
       this.pending.clear();
     }
 
     destroy() {
       this.destroyed = true;
+      clearTimeout(this.revealTimer);
       if (this.onPageHide) removeEventListener('pagehide', this.onPageHide);
       if (this.port) this.port.close();
       this.port = null;
@@ -138,6 +161,10 @@
           if (min !== this.minHeight) {
             this.minHeight = min;
             if (this.handlers.onMinHeight) this.handlers.onMinHeight();
+          }
+          if (!this.sized) {
+            this.sized = true;
+            this.reveal();
           }
           break;
         }
@@ -189,10 +216,29 @@
 
     open() {
       this.isOpen = true;
+      this.prepare();
+      // Until the frame first reports its height, the bubble would show at
+      // a guessed size, so it waits for that, or a moment at most.
+      if (this.sized) {
+        this.reveal();
+      } else {
+        clearTimeout(this.revealTimer);
+        this.revealTimer = setTimeout(() => this.reveal(), 400);
+      }
+    }
+
+    reveal() {
+      clearTimeout(this.revealTimer);
+      if (!this.isOpen || this.el.dataset.open === 'true') return;
       this.el.dataset.open = 'true';
+      const msg = this.focusWanted;
+      this.focusWanted = null;
+      if (msg) this.focus(msg);
     }
 
     close() {
+      clearTimeout(this.revealTimer);
+      this.focusWanted = null;
       this.isOpen = false;
       this.el.dataset.open = 'false';
     }
@@ -242,13 +288,22 @@
     // Keyboard focus goes into the frame first; the frame then focuses its
     // input (or the settings button when asking is blocked).
     focusPrimary({ select = false } = {}) {
-      this.frame.focus();
-      this.once({ type: 'focus', select });
+      this.focus({ type: 'focus', select });
     }
 
     focusInput() {
+      this.focus({ type: 'focusInput' });
+    }
+
+    // A hidden frame can't take focus, so a bubble that hasn't shown yet
+    // takes it when it does.
+    focus(msg) {
+      if (this.el.dataset.open !== 'true') {
+        this.focusWanted = msg;
+        return;
+      }
       this.frame.focus();
-      this.once({ type: 'focusInput' });
+      this.once(msg);
     }
 
     bindCorner(el, corner) {
