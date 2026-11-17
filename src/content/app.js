@@ -164,6 +164,8 @@
       // page got the script without the sheet, Renard shows anyway, but
       // there it won't disappear when the extension is removed.
       if (getComputedStyle(this.host).display === 'none') this.host.style.setProperty('--renard-companion-display', 'block');
+      this.raise();
+      this.fitZoom();
 
       if (this.adapter.kind === 'page') this.bubble.setReadLabel('Read page', "Include this page's text with your question");
       this.bindEvents();
@@ -200,6 +202,36 @@
       } finally {
         this.host.remove();
       }
+    }
+
+    // Shows Renard's root in the browser's top layer, where CSS on the
+    // page's <html> (a transform, filter, contain or will-change) can't make
+    // it scroll away with the page. Removing the element from the page
+    // closes the popover, so this runs again whenever it is put back.
+    // Without popover support the root stays at the host's z-index.
+    raise() {
+      const root = this.root;
+      if (typeof root.showPopover !== 'function' || !this.host.isConnected) return;
+      // Shown now, it would go above a video that's full screen.
+      if (document.fullscreenElement) {
+        document.addEventListener('fullscreenchange', () => this.raise(), { once: true });
+        return;
+      }
+      try {
+        if (!root.hasAttribute('popover')) root.setAttribute('popover', 'manual');
+        if (!root.matches(':popover-open')) root.showPopover();
+      } catch {
+        root.removeAttribute('popover');
+      }
+    }
+
+    // CSS zoom on the page's <html> would scale Renard too, and put the fox
+    // off by the same factor from where its pixel positions say. The root
+    // undoes it.
+    fitZoom() {
+      const zoom = Number(this.host.currentCSSZoom) || 1;
+      const want = Math.abs(zoom - 1) < 0.001 ? '' : String(1 / zoom);
+      if (this.root.style.zoom !== want) this.root.style.zoom = want;
     }
 
     // A constructed stylesheet is immune to the page's Content Security
@@ -293,6 +325,8 @@
             this.timers.reflow = setTimeout(this.onResize, 250);
             return;
           }
+          // A media query can change the page's zoom.
+          this.fitZoom();
           const { min, max } = this.marginRange(this.fox.edge);
           this.inset = Math.min(max, Math.max(min, this.inset));
           this.fox.reflow(this.yFrac, this.inset);
@@ -318,6 +352,9 @@
         if (this.orphaned()) return;
         // A page that replaced <html> itself took Renard with it.
         if (!this.host.isConnected) this.restoreHost();
+        // A stylesheet the page adds later can zoom <html> without any
+        // change the observers see.
+        this.fitZoom();
         if (location.href === this.lastHref) return;
         this.lastHref = location.href;
         this.updateTheme();
@@ -334,6 +371,7 @@
         const delay = Math.max(0, Math.min(100, themeWaitStart + 500 - now));
         this.timers.theme = setTimeout(() => {
           themeWaitStart = 0;
+          this.fitZoom();
           this.updateTheme();
         }, delay);
       });
@@ -371,7 +409,9 @@
       this.restores.push(now);
       this.timers.restore = setTimeout(() => {
         this.timers.restore = 0;
-        if (!this.unmounted && !this.host.isConnected) document.documentElement.append(this.host);
+        if (this.unmounted || this.host.isConnected) return;
+        document.documentElement.append(this.host);
+        this.raise();
       }, 50);
     }
 
