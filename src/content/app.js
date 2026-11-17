@@ -43,6 +43,8 @@
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
   const IMAGES_OFF = "The built-in model can't read images. Pick an API-key provider in settings to attach screenshots.";
+  const NO_CAPTURE_ACCESS =
+    'Screenshots need Renard to have access to all websites. Allow it under Screenshots in settings, then click the camera again. Pasting or dropping an image works without it.';
 
   // The fox is mid-move: reactions, clicks and the bubble wait until it lands,
   // so nothing can strand it walking in place.
@@ -959,6 +961,17 @@
     async capture() {
       if (this.capturing || !this.imagesEnabled()) return;
       this.capturing = true;
+      let allowed = true;
+      try {
+        allowed = (await R.send('renard:captureAccess')).granted;
+      } catch {
+        // The capture itself reports what is wrong.
+      }
+      if (!allowed) {
+        this.capturing = false;
+        this.bubble.setNotice({ text: NO_CAPTURE_ACCESS, settings: true });
+        return;
+      }
       this.root.dataset.capturing = 'true';
       try {
         const rect = await R.pickRegion(this.root);

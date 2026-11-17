@@ -281,12 +281,17 @@
           this.setLine(String(m.text || ''));
           break;
         case 'blocked':
-          // Setting up: the notice and its settings button only.
+          // Setting up: the notice and its settings button only. Every
+          // settings refresh repeats this, so an empty one clears only the
+          // setup notice, not an error or other notice shown since.
           this.form.hidden = Boolean(m.detail);
           this.expandBtn.hidden = Boolean(m.detail);
-          this.setNotice(m.detail ? { text: m.detail, settings: true } : null);
+          if (m.detail) this.setNotice({ text: m.detail, settings: true });
+          else if (this.blockedNotice) this.setNotice(null);
+          this.blockedNotice = Boolean(m.detail);
           break;
         case 'notice':
+          this.blockedNotice = false;
           this.setNotice(m.notice);
           break;
         case 'readChat':
@@ -361,10 +366,16 @@
     }
 
     // Browsers screenshot a page only for an extension with access to all
-    // websites, which the browser asks for on the first click. The request
-    // has to start inside the click itself, so it runs before anything is
-    // awaited. Once granted it resolves at once, with no prompt.
+    // websites. Chrome lets this frame ask for it on the first click; the
+    // request has to start inside the click itself, so it runs before
+    // anything is awaited, and once granted it resolves at once with no
+    // prompt. Firefox gives a frame on a web page no permissions API, so
+    // there the content script checks access and points to settings.
     requestCapture() {
+      if (!ext.permissions || typeof ext.permissions.request !== 'function') {
+        post({ type: 'capture' });
+        return;
+      }
       let granted;
       try {
         granted = ext.permissions.request({ origins: ['<all_urls>'] });

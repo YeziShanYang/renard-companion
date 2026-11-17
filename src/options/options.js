@@ -451,11 +451,11 @@ function switchControl(id, checked, labelledBy) {
 // permissions.request() must run synchronously inside the click handler
 // (Firefox drops the user gesture after an await), so origins are computed
 // before the click.
-function accessButton(origins, onDone) {
+function accessButton(origins, onDone, label = 'Allow access') {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'btn btn-primary';
-  btn.textContent = 'Allow access';
+  btn.textContent = label;
   btn.addEventListener('click', () => {
     ext.permissions.request({ origins }).then(onDone, onDone);
   });
@@ -565,6 +565,24 @@ async function renderAccess() {
   old.replaceWith(btn);
 }
 
+// ---- screenshots ------------------------------------------------------------
+
+// Firefox gives Renard's bubble no way to ask for permissions, so the
+// bubble sends people here.
+const ALL_SITES = ['<all_urls>'];
+
+async function renderScreenshots() {
+  const granted = await hasOrigins(ALL_SITES);
+  $('shots-text').textContent = granted
+    ? "Allowed. You can take it back in your browser's extension settings."
+    : 'Not allowed yet. Pasting or dropping an image into the bubble works without it.';
+  const old = $('shots-btn');
+  const btn = accessButton(ALL_SITES, renderScreenshots, 'Allow screenshots');
+  btn.id = 'shots-btn';
+  btn.hidden = granted;
+  old.replaceWith(btn);
+}
+
 // ---- display ----------------------------------------------------------------
 
 const PREF_SWITCHES = { readable: 'readableText', sound: 'sound' };
@@ -653,16 +671,18 @@ async function init() {
     if (settings.provider === 'local') renderLocal();
     checkDownloads();
   });
-  await Promise.all([renderSites(), renderAccess(), renderShortcuts()]);
+  await Promise.all([renderSites(), renderAccess(), renderScreenshots(), renderShortcuts()]);
   checkKey();
   ext.permissions.onAdded.addListener(() => {
     renderSites();
     renderAccess();
+    renderScreenshots();
     checkKey();
   });
   ext.permissions.onRemoved.addListener(() => {
     renderSites();
     renderAccess();
+    renderScreenshots();
     checkKey();
   });
   addEventListener('online', () => checkKey());

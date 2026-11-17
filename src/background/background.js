@@ -192,7 +192,7 @@ async function captureTab(tab) {
     return await ext.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
   } catch (err) {
     if (/activeTab|all_urls|permission/i.test(String((err && err.message) || err))) {
-      throw new Error('Renard needs access to all websites to take screenshots. Click the camera again to allow it.');
+      throw new Error('Renard needs access to all websites to take screenshots. Allow it under Screenshots in settings.');
     }
     throw err;
   }
@@ -204,6 +204,13 @@ const handlers = {
   'renard:getState': (msg, sender) => publicState(siteFor(msg, sender), { tabId: sender.tab && sender.tab.id, mount: msg.mount === true }),
 
   'renard:getAssets': () => loadAssets(),
+
+  // Whether screenshots are allowed (access to all websites), asked before
+  // the bubble shows the picker.
+  'renard:captureAccess': async (msg, sender) => {
+    if (fromExtensionPage(sender) || !sender.tab) throw new Error('Not allowed');
+    return { granted: await hasOrigins(['<all_urls>']) };
+  },
 
   // A region of the visible tab, to attach to a question. The content script
   // hides Renard first. The region is in CSS pixels, and the viewport's size
