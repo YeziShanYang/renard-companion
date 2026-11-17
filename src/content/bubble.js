@@ -47,7 +47,9 @@
 
     build() {
       // Not in the bubble until prepare() puts it there.
-      this.frame = h('iframe', { class: 'bubble-frame', title: 'Renard', allow: 'clipboard-write' });
+      // keyboard-map: the frame reads the keyboard layout to match shortcuts
+      // (keys.js), which a frame may do only when allowed.
+      this.frame = h('iframe', { class: 'bubble-frame', title: 'Renard', allow: 'clipboard-write; keyboard-map' });
 
       // A resize handle on each corner; dragging one moves that corner while
       // the opposite corner stays put.

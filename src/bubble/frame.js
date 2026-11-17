@@ -57,6 +57,8 @@
       this.shortcuts = {};
       this.blips = false;
       this.build();
+      // The page lets this frame read the keyboard layout (keyboard-map).
+      R.watchKeyboardLayout();
     }
 
     build() {

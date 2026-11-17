@@ -4,8 +4,14 @@
 // text field can swallow the key first: on macOS, Option+Shift+F types "Ï"
 // in a text box, so the command never fires while the bubble's input has
 // focus. The content script therefore also recognizes the configured
-// shortcuts itself, by physical key (KeyboardEvent.code, which Option does
-// not change).
+// shortcuts itself.
+//
+// A letter or digit is matched by the character the key types, as the
+// browsers match their own shortcuts, so on Dvorak or AZERTY the key
+// labelled F is F. When a modifier changes that character (Option on
+// macOS) or the layout isn't Latin, the physical key that types it is used
+// instead: from the keyboard layout where the browser reports it (Chrome),
+// otherwise the key in the US position.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
 
@@ -27,6 +33,16 @@
     Down: 'ArrowDown',
     Left: 'ArrowLeft',
     Right: 'ArrowRight',
+    // Chrome's macOS names for these keys.
+    '↑': 'ArrowUp',
+    '↓': 'ArrowDown',
+    '←': 'ArrowLeft',
+    '→': 'ArrowRight',
+    '↖': 'Home',
+    '↘': 'End',
+    '⇞': 'PageUp',
+    '⇟': 'PageDown',
+    '⌦': 'Delete',
   };
 
   function keyToCode(key) {
@@ -68,14 +84,65 @@
     return { ...mods, code };
   };
 
-  R.matchesShortcut = function (event, shortcut) {
-    return Boolean(
-      shortcut &&
-        event.code === shortcut.code &&
-        event.altKey === shortcut.alt &&
-        event.shiftKey === shortcut.shift &&
-        event.ctrlKey === shortcut.ctrl &&
-        event.metaKey === shortcut.meta,
+  // code -> character for the current keyboard layout, where the browser
+  // reports it (Chrome's Keyboard API, in a top-level page or a frame
+  // allowed keyboard-map). null elsewhere.
+  let layout = null;
+  let watching = false;
+  let loadedAt = 0;
+  async function loadLayout() {
+    loadedAt = Date.now();
+    try {
+      layout = new Map(await globalThis.navigator.keyboard.getLayoutMap());
+    } catch {
+      layout = null;
+    }
+  }
+  // Reads the layout now and again later. Chrome doesn't announce a
+  // layout switch, so it's read again when the page gets focus back, and
+  // at most once a second on a key pressed with a modifier, which then
+  // applies from the next shortcut on.
+  R.watchKeyboardLayout = function () {
+    if (watching || !(globalThis.navigator && navigator.keyboard)) return;
+    watching = true;
+    loadLayout();
+    addEventListener('focus', loadLayout);
+    addEventListener(
+      'keydown',
+      (e) => {
+        if ((e.altKey || e.ctrlKey || e.metaKey) && Date.now() - loadedAt > 1000) loadLayout();
+      },
+      true,
     );
+  };
+  // For tests: a Map or [code, character] pairs, or null.
+  R.setKeyboardLayout = function (map) {
+    layout = map ? new Map(map) : null;
+  };
+
+  // The physical key that types this letter or digit in the current layout.
+  function physicalCode(char, fallback) {
+    if (layout) {
+      const lower = char.toLowerCase();
+      for (const [code, value] of layout) if (value === lower) return code;
+    }
+    return fallback;
+  }
+
+  R.matchesShortcut = function (event, shortcut) {
+    if (
+      !shortcut ||
+      event.altKey !== shortcut.alt ||
+      event.shiftKey !== shortcut.shift ||
+      event.ctrlKey !== shortcut.ctrl ||
+      event.metaKey !== shortcut.meta
+    ) {
+      return false;
+    }
+    const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(shortcut.code);
+    if (!m) return event.code === shortcut.code;
+    const char = m[1] || m[2];
+    if (typeof event.key === 'string' && /^[A-Za-z0-9]$/.test(event.key)) return event.key.toUpperCase() === char;
+    return event.code === physicalCode(char, shortcut.code);
   };
 })();
