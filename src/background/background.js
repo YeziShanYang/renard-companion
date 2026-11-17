@@ -560,7 +560,8 @@ async function answerLocally(s, msg, post, signal) {
     // ready any more.
     if (err.kind === 'localMissing') await forgetLocal(model.id);
     if (err.kind === 'tooLong') {
-      throw new ProviderError('unknown', "That's more than the built-in model can read at once. Shorten the question, or turn Read chat off.");
+      const reading = msg.page ? 'Read page' : 'Read chat';
+      throw new ProviderError('unknown', `That's more than the built-in model can read at once. Shorten the question, or turn ${reading} off.`);
     }
     throw err;
   }

@@ -26,10 +26,10 @@ const UNLOAD_AFTER_MS = 10 * 60 * 1000;
 // prompt computes scores over Gemma's 262,144-token vocabulary for every
 // prompt token, and one WebGPU buffer holds only so many: Firefox's q4 build
 // (32-bit scores) failed past about 2,000 tokens, and Chrome's q4f16 build
-// near 8,000, using gigabytes of memory well before that. A longer prompt is
-// refused before it reaches the GPU, where it would fail and force a
-// restart.
-const MAX_PROMPT_TOKENS = IS_FIREFOX ? 1800 : 4000;
+// near 4,000, after a 3,500-token prompt had taken the GPU process to 4 GB.
+// A longer prompt is refused before it reaches the GPU, where it would fail
+// and force a restart.
+const MAX_PROMPT_TOKENS = IS_FIREFOX ? 1800 : 2500;
 
 env.allowLocalModels = false;
 env.useBrowserCache = true;
@@ -45,7 +45,11 @@ class EngineError extends Error {
   }
 }
 
-function checkLength(tokens) {
+// tokens: the prompt's token ids (an array), or a count. Anything else is a
+// bug that must not let a long prompt through unchecked.
+function checkLength(ids) {
+  const tokens = typeof ids === 'number' ? ids : Array.isArray(ids) ? ids.length : NaN;
+  if (!Number.isFinite(tokens)) throw new EngineError('unknown', "Couldn't count the prompt's tokens.");
   if (tokens > MAX_PROMPT_TOKENS) {
     throw new EngineError('tooLong', `The prompt is ${tokens} tokens, over the ${MAX_PROMPT_TOKENS} this browser can run.`, { tokens, limit: MAX_PROMPT_TOKENS });
   }
@@ -190,7 +194,8 @@ async function loadModel(key, model, dtype, progress_callback) {
         { role: 'system', content: system },
         { role: 'user', content: user },
       ];
-      checkLength(generator.tokenizer.apply_chat_template(messages, { add_generation_prompt: true, tokenize: true, return_tensor: false }).length);
+      // return_dict: false, or Transformers.js returns { input_ids, attention_mask }.
+      checkLength(generator.tokenizer.apply_chat_template(messages, { add_generation_prompt: true, tokenize: true, return_tensor: false, return_dict: false }));
       const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta, token_callback_function: onTokens });
       await generator(messages, { max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
     };
@@ -296,12 +301,8 @@ async function generate(msg, emit, signal) {
 // the returned value is the final result.
 export async function handle(type, msg, emit, signal) {
   switch (type) {
-    case 'status': {
-      // Settings asks this on opening, with nothing else to do.
-      const status = await gpuStatus();
-      if (!queued && !current && idleHandler) idleHandler();
-      return status;
-    }
+    case 'status':
+      return gpuStatus();
 
     case 'prepare':
       return serial(async () => {
