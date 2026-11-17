@@ -231,3 +231,36 @@ test('headings drop closing hashes, and long runs of spaces parse quickly', () =
     assert.ok(performance.now() - t < 200, `${src.slice(0, 6)}… took ${Math.round(performance.now() - t)} ms`);
   }
 });
+
+test('bold and italic around a double-backtick code span', () => {
+  const [p] = parse('**Use ``a`b`` here** and *also ``c`d``*');
+  assert.deepEqual(p.children[0], { type: 'strong', children: [text('Use '), { type: 'code', text: 'a`b' }, text(' here')] });
+  assert.equal(p.children[2].type, 'em');
+});
+
+test('a separator with more or fewer cells than the header still makes a table', () => {
+  assert.equal(parse('| a | b |\n|---|---|---|\n| 1 | 2 |')[0].type, 'table');
+  assert.equal(parse('| a | b | c |\n|---|---|\n| 1 | 2 | 3 |')[0].type, 'table');
+});
+
+test('a bare address gets a label only when its host is not the real one', () => {
+  const link = (src) => parse(src)[0].children.find((n) => n.type === 'link');
+  for (const src of ['https://GitHub.com/x', 'https://example.com?q=1', 'https://example.com/#frag', 'https://example.com:443/a', 'https://example.com/a/../b']) {
+    assert.equal(link(`See ${src} now`).dest, undefined, src);
+  }
+  assert.equal(link('[https://claude.ai/login](https://evil.example/login)').dest, 'evil.example');
+  assert.equal(link('[https://claude.ai@evil.example](https://claude.ai@evil.example)').dest, 'evil.example');
+});
+
+test('mailto labels list to, cc and bcc in any case', () => {
+  const link = (src) => parse(src)[0].children.find((n) => n.type === 'link');
+  assert.equal(link('[me@example.com](mailto:me@example.com?BCC=x@evil.example&To=y@evil.example)').dest, 'me@example.com, bcc x@evil.example, to y@evil.example');
+});
+
+test('a tab-indented fence inside a list item keeps its code indented', () => {
+  const [list] = parse('- step:\n\t```python\n\tdef f():\n\t\treturn 1\n\t```');
+  assert.equal(list.type, 'ul');
+  const code = list.items[0].children.find((b) => b.type === 'code');
+  assert.ok(code, JSON.stringify(list.items[0].children));
+  assert.match(code.text, /def f\(\):\n\s+return 1/);
+});

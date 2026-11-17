@@ -44,14 +44,17 @@
     return Boolean(fenceOf(line)) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST.test(line) || MATH_BLOCK.test(line);
   }
 
-  // A table starts at lines[i]: a row with a pipe, then a separator row with
-  // as many cells.
+  // A table starts at lines[i]: a row with a pipe, then a separator row. A
+  // one-cell separator must match the header, so "a | b" over a lone "-"
+  // isn't a table; models also write separators with more or fewer cells.
   function startsTable(lines, i) {
     const line = lines[i];
     const sep = lines[i + 1];
     if (!line.includes('|') || sep === undefined || !sep.includes('-')) return false;
     const s = sep.trim();
-    return TABLE_SEP.test(s) && splitRow(s).length === splitRow(line).length;
+    if (!TABLE_SEP.test(s)) return false;
+    const cells = splitRow(s).length;
+    return cells >= 2 || cells === splitRow(line).length;
   }
 
   function splitRow(line) {
@@ -264,11 +267,15 @@
   // parenthesis it didn't open ("(see https://x.example/a_(b))").
   function trimUrl(url) {
     let u = url;
+    let opens = (u.match(/\(/g) || []).length;
+    let closes = (u.match(/\)/g) || []).length;
     for (;;) {
       const last = u[u.length - 1];
       if ('.,:;"\'!?*_~]'.includes(last)) u = u.slice(0, -1);
-      else if (last === ')' && (u.match(/\)/g) || []).length > (u.match(/\(/g) || []).length) u = u.slice(0, -1);
-      else break;
+      else if (last === ')' && closes > opens) {
+        u = u.slice(0, -1);
+        closes--;
+      } else break;
     }
     return u.length > 'https://'.length ? u : null;
   }
@@ -289,10 +296,11 @@
     // no backtick follows it on the line. Without both, an unclosed ** before
     // many code spans tried every way of splitting them: 84 characters took
     // seconds.
-    { re: /^\*\*(?=\S)((?:(?=(`[^`\n]+`))\2|[^*`]|`(?![^`\n]*`)|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
+    // A double-backtick span (``a`b``) is taken whole the same way.
+    { re: /^\*\*(?=\S)((?:(?=(``(?:[^`\n]|`(?!`))+?``))\2|(?=(`[^`\n]+`))\3|[^*`]|`(?![^`\n]*`)|\*(?!\*))+?)(?<=\S)\*\*/, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
     { re: /^__(?=\S)([\s\S]+?)(?<=\S)__(?![A-Za-z0-9])/, word: true, make: (m) => ({ type: 'strong', children: parseInline(m[1]) }) },
     // Code spans are skipped whole here too, so "*use `a*b`*" is italic code.
-    { re: /^\*(?=[^\s*])((?:(?=(`[^`\n]+`))\2|\*\*[^*]+\*\*|[^*`]|`(?![^`\n]*`))+?)(?<=\S)\*(?!\*)/, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
+    { re: /^\*(?=[^\s*])((?:(?=(``(?:[^`\n]|`(?!`))+?``))\2|(?=(`[^`\n]+`))\3|\*\*[^*]+\*\*|[^*`]|`(?![^`\n]*`))+?)(?<=\S)\*(?!\*)/, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
     { re: /^_(?=[^\s_])([\s\S]+?)(?<=\S)_(?![A-Za-z0-9_])/, word: true, make: (m) => ({ type: 'em', children: parseInline(m[1]) }) },
     { re: /^~~(?=\S)([\s\S]+?)(?<=\S)~~/, make: (m) => ({ type: 'del', children: parseInline(m[1]) }) },
   ];
@@ -315,12 +323,17 @@
     }
   }
 
-  // Where a mailto: link sends mail, cc and bcc included.
+  // Where a mailto: link sends mail: its address, and any to, cc and bcc
+  // fields in its query (in any case).
   function mailDest(href) {
     const u = new URL(href);
     const to = decoded(u.pathname);
-    const copies = ['cc', 'bcc'].flatMap((k) => u.searchParams.getAll(k).map((v) => `${k} ${v}`));
-    return [to, ...copies].filter(Boolean).join(', ');
+    const more = [];
+    for (const [k, v] of u.searchParams) {
+      const key = k.toLowerCase();
+      if (key === 'to' || key === 'cc' || key === 'bcc') more.push(`${key} ${v}`);
+    }
+    return [to, ...more].filter(Boolean).join(', ');
   }
 
   // A link whose text isn't its own address also shows where it really goes,
@@ -333,8 +346,15 @@
     if (href.startsWith('mailto:')) {
       const dest = mailDest(href);
       if (text !== dest) node.dest = dest;
-    } else if (text !== href.replace(/\/$/, '') && text !== decoded(href).replace(/\/$/, '')) {
-      node.dest = new URL(href).host;
+    } else {
+      // Text that is itself an address needs a label only when its host
+      // isn't the real one (look-alike letters, or another site entirely);
+      // case, a port, a query or a path don't matter.
+      const shown = /^https?:\/\/([^/?#\s:]+)/i.exec(text);
+      const real = new URL(href);
+      if (shown ? shown[1].toLowerCase() !== real.hostname : text !== href.replace(/\/$/, '') && text !== decoded(href).replace(/\/$/, '')) {
+        node.dest = real.host;
+      }
     }
     return node;
   }
@@ -414,8 +434,10 @@
 
       if (ch === '[' && !inLink && !missing.has('](')) {
         if (src.indexOf('](', i) === -1) missing.add('](');
-        // The address may hold balanced parentheses: …/wiki/Foo_(bar).
-        const m = rest.match(/^\[([^\]\n]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))+)>?(?:\s+"[^"]*")?\s*\)/);
+        // The address may hold balanced parentheses (…/wiki/Foo_(bar)), and
+        // falls back to everything before the first ")" when they don't
+        // balance. A title may be in double or single quotes.
+        const m = rest.match(/^\[([^\]\n]*)\]\(\s*<?((?:[^()\s>]|\([^()\s]*\))+|[^)\s>]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/);
         const href = m && safeUrl(m[2]);
         if (href) {
           flush();
@@ -506,7 +528,9 @@
       .replace(/\r\n?/g, '\n')
       .split('\n')
       .map((l) => {
-        const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(l);
+        // Only a fence at the top level, as list items measure their code's
+        // indentation in spaces.
+        const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
         if (open) {
           if (m && m[1][0] === open[0] && m[1].length >= open.length && !m[2].trim()) open = null;
           return open ? l : l.replace(/\t/g, '    ');
