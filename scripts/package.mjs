@@ -7,8 +7,9 @@
 // src/manifest.json is written for Firefox, so src/ loads in Firefox without
 // warnings. Each package adjusts it: Chrome gets a service worker in place of
 // background scripts, the offscreen permission (for the built-in model), and
-// drops Firefox-only keys. The licensed sprite sheet is required, since a
-// published build should show the real fox.
+// drops Firefox-only keys. The licensed sprite sheet is required for the
+// zips, since a published build should show the real fox. A --no-zip build
+// for local testing works without it, as src/ does.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,8 +20,12 @@ const SRC = path.join(ROOT, 'src');
 const DIST = path.join(ROOT, 'dist');
 const WEB_EXT = path.join(ROOT, 'node_modules', '.bin', 'web-ext');
 
-if (!fs.existsSync(path.join(SRC, 'assets', 'fox-sprite-sheet.png'))) {
-  console.error('Missing src/assets/fox-sprite-sheet.png: store builds need the sprite sheet.');
+const args = process.argv.slice(2);
+const only = args.includes('--target') ? args[args.indexOf('--target') + 1] : null;
+const zip = !args.includes('--no-zip');
+
+if (zip && !fs.existsSync(path.join(SRC, 'assets', 'fox-sprite-sheet.png'))) {
+  console.error('Missing src/assets/fox-sprite-sheet.png: store builds need the sprite sheet (--no-zip builds without it).');
   process.exit(1);
 }
 if (!fs.existsSync(path.join(SRC, 'vendor', 'transformers', 'transformers.min.js'))) {
@@ -40,13 +45,12 @@ const TARGETS = {
     m.background = { service_worker: m.background.scripts[0], type: 'module' };
     delete m.browser_specific_settings;
     m.permissions = [...new Set([...m.permissions, 'offscreen'])];
+    // chrome.runtime.getContexts (the offscreen check) and AbortSignal.any.
+    m.minimum_chrome_version = '116';
     return m;
   },
 };
 
-const args = process.argv.slice(2);
-const only = args.includes('--target') ? args[args.indexOf('--target') + 1] : null;
-const zip = !args.includes('--no-zip');
 if (only && !TARGETS[only]) {
   console.error(`Unknown --target ${only}; use firefox or chrome.`);
   process.exit(1);

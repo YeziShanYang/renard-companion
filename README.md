@@ -38,7 +38,7 @@ stores yet, so for now you load it from source.
 ## Setup
 
 You need Node.js 20 or later. Renard runs in Firefox 142 or later and in
-Chromium-based browsers.
+Chrome 116 or later (or another Chromium-based browser of that version).
 
 ```sh
 npm install
@@ -113,7 +113,7 @@ There are two models:
 - Gemma 4 E2B: 3.1 GB in Chrome, 3.6 GB in Firefox. Noticeably smarter, but it
   needs about 5 GB of free memory.
 
-WebGPU is required. That means Chrome 113 or later, or Firefox 147 or later on
+WebGPU is required. That means Chrome 116 or later, or Firefox 147 or later on
 Apple Silicon Macs and Windows. Firefox doesn't support WebGPU on Intel Macs or
 Linux yet.
 
