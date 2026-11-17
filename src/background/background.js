@@ -2,6 +2,7 @@
 // that reads API keys. Content scripts reach it through messages and a
 // streaming port, and only ever receive non-secret state.
 import '../shared/constants.js';
+import '../shared/image.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
 import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter } from '../shared/prompt.js';
@@ -175,10 +176,61 @@ function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n));
 }
 
+// A data: URL from captureVisibleTab as a Blob. fetch() would need data: in
+// the extension's connect-src.
+function dataUrlBlob(url) {
+  const comma = url.indexOf(',');
+  const type = url.slice(5, comma).split(';')[0];
+  const binary = atob(url.slice(comma + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+
+// The visible part of a tab, as a PNG data: URL.
+function captureTab(tab) {
+  return ext.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+}
+
+let capturing = false;
+
 const handlers = {
   'renard:getState': (msg, sender) => publicState(siteFor(msg, sender), { tabId: sender.tab && sender.tab.id, mount: msg.mount === true }),
 
   'renard:getAssets': () => loadAssets(),
+
+  // A region of the visible tab, to attach to a question. The content script
+  // hides Renard first. The region is in CSS pixels, and the viewport's size
+  // in CSS pixels gives the capture's scale (device pixels and zoom).
+  'renard:capture': async (msg, sender) => {
+    if (fromExtensionPage(sender) || !sender.tab) throw new Error('Not allowed');
+    siteFor(msg, sender);
+    const r = msg.rect || {};
+    const vw = Number(msg.viewport && msg.viewport.w);
+    const vh = Number(msg.viewport && msg.viewport.h);
+    if (![r.x, r.y, r.w, r.h, vw, vh].every(Number.isFinite) || vw < 1 || vh < 1) throw new Error('Bad region');
+    // captureVisibleTab takes whichever tab is showing in the window.
+    const [shown] = await ext.tabs.query({ active: true, windowId: sender.tab.windowId });
+    if (!shown || shown.id !== sender.tab.id) throw new Error('The tab is no longer showing.');
+    if (capturing) throw new Error('A screenshot is already being taken.');
+    capturing = true;
+    try {
+      const bitmap = await createImageBitmap(dataUrlBlob(await captureTab(sender.tab)));
+      try {
+        const sx = bitmap.width / vw;
+        const sy = bitmap.height / vh;
+        const x = clamp(r.x, 0, vw - 1);
+        const y = clamp(r.y, 0, vh - 1);
+        const w = clamp(r.w, 1, vw - x);
+        const h = clamp(r.h, 1, vh - y);
+        return await R.prepareImage(bitmap, { x: x * sx, y: y * sy, width: w * sx, height: h * sy });
+      } finally {
+        bitmap.close();
+      }
+    } finally {
+      capturing = false;
+    }
+  },
 
   'renard:savePosition': async (msg, sender) => {
     const site = siteFor(msg, sender);
@@ -392,6 +444,8 @@ function context(msg, post, limits = R.LIMITS) {
 }
 
 async function answerLocally(s, msg, post, signal) {
+  // The bubble turns screenshots off for the built-in model.
+  if (msg.image) throw new ProviderError('unknown', "The built-in model can't read images. Ask without the screenshot, or pick an API-key provider in settings.");
   const model = R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'];
   if (!R.localReady(s.localModel, model)) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
   const { chat, page } = context(msg, post, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars, pageChars: R.LIMITS.localPageChars });
@@ -459,11 +513,14 @@ async function answer(msg, post, signal) {
   const { chat, page } = context(msg, post);
 
   const question = String(msg.question || '').slice(0, 20000);
+  if (msg.image && !R.isAttachedImage(msg.image)) throw new ProviderError('unknown', "The attached image couldn't be read. Remove it and try again.");
+  const images = msg.image ? [{ mediaType: msg.image.mediaType, data: msg.image.data }] : [];
   await streamAnswer(provider.id, {
     apiKey,
     model,
     system: SYSTEM_PROMPT,
-    user: buildUserMessage(question, chat, page),
+    user: buildUserMessage(question, chat, page, { screenshot: images.length > 0 }),
+    images,
     signal,
     onDelta: (text) => post({ type: 'delta', text }),
   });
