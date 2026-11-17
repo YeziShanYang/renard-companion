@@ -160,6 +160,10 @@
       // Clear any fox an older copy of the extension left on the page.
       for (const stray of document.querySelectorAll(R.HOST_SELECTOR)) if (stray !== this.host) stray.remove();
       document.documentElement.append(this.host);
+      // The element shows only while content/host.css is on the page. If a
+      // page got the script without the sheet, Renard shows anyway, but
+      // there it won't disappear when the extension is removed.
+      if (getComputedStyle(this.host).display === 'none') this.host.style.setProperty('--renard-companion-display', 'block');
 
       if (this.adapter.kind === 'page') this.bubble.setReadLabel('Read page', "Include this page's text with your question");
       this.bindEvents();

@@ -67,6 +67,7 @@
         "content/app.js",
         "content/main.js"
       ],
+      "css": ["content/host.css"],
       "run_at": "document_idle"
     }
   ],

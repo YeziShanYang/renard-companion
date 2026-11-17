@@ -9,7 +9,9 @@
   left: 0 !important;
   width: 0 !important;
   height: 0 !important;
-  display: block !important;
+  /* Shown only while content/host.css is on the page, so a fox an
+     extension removal leaves behind disappears with the sheet. */
+  display: var(--renard-companion-display, none) !important;
   z-index: 2147483646 !important;
 }
 

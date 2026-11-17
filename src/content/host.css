@@ -1,0 +1,8 @@
+/* Lets Renard's page element show (see :host in renard.css, which hides it
+   without this). The browser injects this sheet with Renard's page script
+   and removes it along with the extension. Firefox leaves a disabled or
+   removed extension's elements on open tabs, and once this sheet is gone,
+   a fox left behind is hidden. */
+[data-renard-companion] {
+  --renard-companion-display: block !important;
+}

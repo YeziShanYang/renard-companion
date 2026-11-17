@@ -713,9 +713,24 @@ const SITE_SCRIPTS = 'renard-other-sites';
 // The content script's files, as paths within the extension. Firefox's
 // getManifest() returns them as full moz-extension:// URLs, which
 // registerContentScripts and executeScript refuse.
-function contentScriptFiles() {
+function extensionPath(f) {
   const base = ext.runtime.getURL('');
-  return ext.runtime.getManifest().content_scripts[0].js.map((f) => (f.startsWith(base) ? f.slice(base.length) : f));
+  return f.startsWith(base) ? f.slice(base.length) : f;
+}
+function contentScriptFiles() {
+  return ext.runtime.getManifest().content_scripts[0].js.map(extensionPath);
+}
+// The stylesheet that lets Renard's element show (content/host.css). Every
+// way the script reaches a page brings it along.
+function contentScriptCss() {
+  return (ext.runtime.getManifest().content_scripts[0].css || []).map(extensionPath);
+}
+
+// Puts Renard on an open tab now. A page that already has Renard's script
+// ignores a second copy.
+async function injectRenard(tabId) {
+  await ext.scripting.insertCSS({ target: { tabId }, files: contentScriptCss() });
+  await ext.scripting.executeScript({ target: { tabId }, files: contentScriptFiles() });
 }
 let siteScripts = Promise.resolve();
 
@@ -732,13 +747,16 @@ function syncSiteScripts() {
   siteScripts = siteScripts
     .then(async () => {
       const matches = (await grantedOtherSites()).map(R.originFor).sort();
+      const js = contentScriptFiles();
+      const css = contentScriptCss();
+      const same = (a, b) => [...(a || [])].map(extensionPath).sort().join() === [...b].sort().join();
       const [existing] = await ext.scripting.getRegisteredContentScripts({ ids: [SITE_SCRIPTS] });
-      if (existing && [...existing.matches].sort().join() === matches.join()) return;
+      // An earlier version's registration (other files, or none of the
+      // stylesheet) is replaced too.
+      if (existing && same(existing.matches, matches) && same(existing.js, js) && same(existing.css, css)) return;
       if (existing) await ext.scripting.unregisterContentScripts({ ids: [SITE_SCRIPTS] });
       if (!matches.length) return;
-      await ext.scripting.registerContentScripts([
-        { id: SITE_SCRIPTS, matches, js: contentScriptFiles(), runAt: 'document_idle' },
-      ]);
+      await ext.scripting.registerContentScripts([{ id: SITE_SCRIPTS, matches, js, css, runAt: 'document_idle' }]);
     })
     .catch((err) => console.warn('[Renard] site scripts:', err));
   return siteScripts;
@@ -781,12 +799,8 @@ async function addSiteOnce(host) {
   } catch {
     // no matching tabs
   }
-  const files = contentScriptFiles();
   let blocked = 0;
-  for (const t of tabs) {
-    // A page that already has Renard's script ignores a second copy.
-    await ext.scripting.executeScript({ target: { tabId: t.id }, files }).catch(() => blocked++);
-  }
+  for (const t of tabs) await injectRenard(t.id).catch(() => blocked++);
   return { added: host, tabs: tabs.length, blocked };
 }
 
@@ -869,16 +883,13 @@ ext.commands.onCommand.addListener(async (command, tab) => {
 // a tab that already has it ignores the second one.
 async function injectOpenTabs() {
   const matches = [...ext.runtime.getManifest().content_scripts[0].matches, ...(await grantedOtherSites()).map(R.originFor)];
-  const files = contentScriptFiles();
   let tabs = [];
   try {
     tabs = await ext.tabs.query({ url: matches });
   } catch {
     return;
   }
-  for (const t of tabs) {
-    await ext.scripting.executeScript({ target: { tabId: t.id }, files }).catch(() => {});
-  }
+  for (const t of tabs) await injectRenard(t.id).catch(() => {});
 }
 
 ext.runtime.onInstalled.addListener(async (details) => {
