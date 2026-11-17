@@ -46,6 +46,32 @@ env.useBrowserCache = true;
 // The WebAssembly runtime ships inside the extension (never from a CDN).
 env.backends.onnx.wasm.wasmPaths = ext.runtime.getURL('vendor/transformers/');
 
+// Firefox suspends its background page about 30 seconds after the last
+// answer, with the model loaded, and it used to keep the closed page's
+// memory until it quit: 3.4 GB in the extension process and 1.4 GB in the
+// GPU process after a long prompt, and more with every question.
+//
+// The page stayed because ONNX Runtime's WebAssembly code leaves an
+// Atomics.waitAsync() pending on its shared memory, and Firefox keeps a page
+// alive while one is pending. That wait is for messages from worker threads.
+// This page isn't cross-origin isolated, so ONNX Runtime runs on one thread
+// and starts none, and without waitAsync it skips the wait.
+//
+// Firefox then still took minutes to free a page closed with the model
+// loaded. Unloading the model when Firefox is about to suspend the page lets
+// it free the page within about 30 seconds, and a question that arrives
+// meanwhile cancels the suspension and loads the model again. Destroying the
+// GPU device as the page goes away (suspended, or reloaded after a GPU
+// error) gives the GPU memory back at once.
+if (IS_FIREFOX) {
+  delete Atomics.waitAsync;
+  ext.runtime.onSuspend.addListener(() => serial(unload));
+  addEventListener('pagehide', () => {
+    const device = env.backends.onnx.webgpu.device;
+    if (device) device.destroy();
+  });
+}
+
 class EngineError extends Error {
   // extra: { tokens, limit } for a prompt that is too long.
   constructor(kind, message, extra = {}) {
