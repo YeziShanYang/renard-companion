@@ -751,11 +751,15 @@ function contentScriptCss() {
   return (ext.runtime.getManifest().content_scripts[0].css || []).map(extensionPath);
 }
 
-// Puts Renard on an open tab now. A page that already has Renard's script
-// ignores a second copy.
+// Puts Renard on an open tab now, unless this copy of Renard already runs
+// there: a second copy of the files would start over the state some of
+// them keep.
 async function injectRenard(tabId) {
-  await ext.scripting.insertCSS({ target: { tabId }, files: contentScriptCss() });
-  await ext.scripting.executeScript({ target: { tabId }, files: contentScriptFiles() });
+  const target = { tabId };
+  const [probe] = await ext.scripting.executeScript({ target, func: () => Boolean(globalThis.Renard && globalThis.Renard.booted) });
+  if (probe && probe.result === true) return;
+  await ext.scripting.insertCSS({ target, files: contentScriptCss() });
+  await ext.scripting.executeScript({ target, files: contentScriptFiles() });
 }
 let siteScripts = Promise.resolve();
 
@@ -959,13 +963,16 @@ ext.commands.onCommand.addListener(async (command, tab) => {
   if (tabId != null) ext.tabs.sendMessage(tabId, { type: 'renard:command', command }).catch(() => {});
 });
 
-// After an install, update or reload, tabs already open on Renard's sites
-// have the old copy of the content script (which removes its fox once it
-// notices) or no copy at all: Chrome doesn't inject into open tabs, and
-// Firefox doesn't for added sites. Each such tab gets the current copy, and
-// a tab that already has it ignores the second one.
+// When Renard starts after an install, update or reload, or after being
+// turned back on, tabs already open on its sites have the old copy of the
+// content script (which removes its fox once it notices) or no copy at all:
+// Chrome doesn't inject into open tabs, and Firefox doesn't for added
+// sites. Each such tab gets the current copy (injectRenard skips a tab that
+// has it). Everything is injected into each tab once (an added site is also
+// an https site).
 async function injectOpenTabs() {
-  const matches = [...ext.runtime.getManifest().content_scripts[0].matches, ...(await grantedOtherSites()).map(R.originFor)];
+  const all = await everywhere();
+  const matches = [...ext.runtime.getManifest().content_scripts[0].matches, ...(all ? [] : (await grantedOtherSites()).map(R.originFor))];
   let tabs = [];
   try {
     tabs = await ext.tabs.query({ url: matches });
@@ -973,13 +980,23 @@ async function injectOpenTabs() {
     return;
   }
   for (const t of tabs) await injectRenard(t.id).catch(() => {});
-  if (await everywhere()) await injectWebTabs();
+  if (all) await injectWebTabs();
+}
+
+// Runs injectOpenTabs once per start of Renard. Session storage is empty
+// whenever Renard has just started (installed, updated, turned back on, or
+// the browser opened); Chrome runs onInstalled only for the first two, and
+// the service worker's own restarts keep the flag.
+async function startOnce() {
+  if (!ext.storage.session) return;
+  if ((await ext.storage.session.get('started')).started) return;
+  await ext.storage.session.set({ started: true });
+  await injectOpenTabs();
 }
 
 ext.runtime.onInstalled.addListener(async (details) => {
   updateBadge().catch(() => {});
   syncSiteScripts();
-  if (details.reason === 'install' || details.reason === 'update') injectOpenTabs();
   if (details.reason !== 'install') return;
   // First run only: open settings when no key is saved yet, so reinstalling
   // during development doesn't open another settings tab each time.
@@ -989,6 +1006,10 @@ ext.runtime.onInstalled.addListener(async (details) => {
 
 updateBadge().catch(() => {});
 syncSiteScripts();
+startOnce().catch(() => {});
+// API keys still in storage.local (from an earlier version, say) move to
+// the database now, out of content scripts' reach.
+loadSettings(['apiKeys']).catch(() => {});
 
 // No content script reads storage (they get key-free state by message).
 // Where the browser supports it, lock storage to extension pages so a
