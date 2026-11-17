@@ -415,10 +415,14 @@
         this.setNotice({ text: 'That image is too large to attach (over 40 MB).' });
         return;
       }
+      // A slow earlier paste mustn't replace a later one.
+      const token = (this.attachToken = {});
       try {
-        post({ type: 'attach', image: await R.prepareImage(file) });
-      } catch {
-        this.setNotice({ text: "Couldn't read that image." });
+        const image = await R.prepareImage(file);
+        if (token === this.attachToken) post({ type: 'attach', image });
+      } catch (err) {
+        if (token !== this.attachToken) return;
+        this.setNotice({ text: err && err.code === 'tooLarge' ? 'That image is too large to attach (over 50 megapixels).' : "Couldn't read that image." });
       }
     }
 
