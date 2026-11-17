@@ -22,15 +22,32 @@ const IS_FIREFOX = typeof ext.runtime.getBrowserInfo === 'function';
 
 const UNLOAD_AFTER_MS = 10 * 60 * 1000;
 
+// The longest prompt, in tokens, this browser's GPU can take. Reading a
+// prompt computes scores over Gemma's 262,144-token vocabulary for every
+// prompt token, and one WebGPU buffer holds only so many: Firefox's q4 build
+// (32-bit scores) failed past about 2,000 tokens, and Chrome's q4f16 build
+// near 8,000, using gigabytes of memory well before that. A longer prompt is
+// refused before it reaches the GPU, where it would fail and force a
+// restart.
+const MAX_PROMPT_TOKENS = IS_FIREFOX ? 1800 : 4000;
+
 env.allowLocalModels = false;
 env.useBrowserCache = true;
 // The WebAssembly runtime ships inside the extension (never from a CDN).
 env.backends.onnx.wasm.wasmPaths = ext.runtime.getURL('vendor/transformers/');
 
 class EngineError extends Error {
-  constructor(kind, message) {
+  // extra: { tokens, limit } for a prompt that is too long.
+  constructor(kind, message, extra = {}) {
     super(message);
     this.kind = kind;
+    Object.assign(this, extra);
+  }
+}
+
+function checkLength(tokens) {
+  if (tokens > MAX_PROMPT_TOKENS) {
+    throw new EngineError('tooLong', `The prompt is ${tokens} tokens, over the ${MAX_PROMPT_TOKENS} this browser can run.`, { tokens, limit: MAX_PROMPT_TOKENS });
   }
 }
 
@@ -136,25 +153,27 @@ async function loadModel(key, model, dtype, progress_callback) {
     // Gemma 4 is multimodal; Renard sends text only.
     const processor = await AutoProcessor.from_pretrained(model.repo, { revision, progress_callback });
     const lm = await Gemma4ForConditionalGeneration.from_pretrained(model.repo, { revision, dtype, device: 'webgpu', progress_callback });
-    run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
+    run = async ({ system, user, maxNewTokens, onDelta, onTokens, stopper }) => {
       const messages = [
         { role: 'system', content: [{ type: 'text', text: system }] },
         { role: 'user', content: [{ type: 'text', text: user }] },
       ];
       const prompt = processor.apply_chat_template(messages, { add_generation_prompt: true, enable_thinking: false });
       const inputs = await processor(prompt);
-      const streamer = new TextStreamer(processor.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
+      checkLength(inputs.input_ids.dims.at(-1));
+      const streamer = new TextStreamer(processor.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta, token_callback_function: onTokens });
       await lm.generate({ ...inputs, max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
     };
     dispose = () => lm.dispose();
   } else {
     const generator = await pipeline('text-generation', model.repo, { revision, dtype, device: 'webgpu', progress_callback });
-    run = async ({ system, user, maxNewTokens, onDelta, stopper }) => {
+    run = async ({ system, user, maxNewTokens, onDelta, onTokens, stopper }) => {
       const messages = [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ];
-      const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta });
+      checkLength(generator.tokenizer.apply_chat_template(messages, { add_generation_prompt: true, tokenize: true, return_tensor: false }).length);
+      const streamer = new TextStreamer(generator.tokenizer, { skip_prompt: true, skip_special_tokens: true, callback_function: onDelta, token_callback_function: onTokens });
       await generator(messages, { max_new_tokens: maxNewTokens, streamer, stopping_criteria: stopper });
     };
     dispose = () => generator.dispose();
@@ -219,17 +238,24 @@ async function generate(msg, emit, signal) {
   active = stopper;
   const onAbort = () => stopper.interrupt();
   if (signal) signal.addEventListener('abort', onAbort);
+  const maxNewTokens = Math.min(2048, Math.max(1, Math.round(Number(msg.maxNewTokens) || 1024)));
+  let made = 0;
   try {
     await c.run({
       system: String(msg.system || '').slice(0, 4000),
       user: String(msg.user || '').slice(0, 200000),
-      maxNewTokens: Math.min(2048, Math.max(1, Math.round(Number(msg.maxNewTokens) || 1024))),
+      maxNewTokens,
       stopper,
       onDelta: (text) => {
         if (text) emit({ type: 'delta', text });
       },
+      onTokens: (tokens) => {
+        made += tokens.length;
+      },
     });
   } catch (err) {
+    // Refused before it ran (a prompt that is too long): the GPU is fine.
+    if (err instanceof EngineError) throw err;
     // A failed run (WebGPU failing to map a buffer, or losing the device)
     // leaves ONNX Runtime's GPU device unusable for the rest of this page,
     // so every later question would fail too. The page hosting the engine
@@ -244,7 +270,8 @@ async function generate(msg, emit, signal) {
     if (signal) signal.removeEventListener('abort', onAbort);
     if (active === stopper) active = null;
   }
-  return { stopped: Boolean(signal && signal.aborted) };
+  // limited: the answer stopped at maxNewTokens, not where the model ended it.
+  return { stopped: Boolean(signal && signal.aborted), limited: made >= maxNewTokens };
 }
 
 // Requests from the background script. emit() sends progress and text;

@@ -380,13 +380,22 @@ async function ensureOffscreen() {
 
 // Sends one request to the engine. onEvent receives progress and text;
 // aborting the signal cancels the request.
+// An engine failure as a ProviderError, keeping the token counts of a
+// prompt that was too long.
+function engineError(e) {
+  const err = new ProviderError(e.kind || 'unknown', String(e.message || e));
+  if (Number.isFinite(e.tokens)) err.tokens = e.tokens;
+  if (Number.isFinite(e.limit)) err.limit = e.limit;
+  return err;
+}
+
 async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
   if (ENGINE_IN_PAGE) {
     const engine = await import('../engine/engine.js');
     try {
       return await engine.handle(msg.type, msg, onEvent, signal);
     } catch (err) {
-      throw new ProviderError(err.kind || 'unknown', String((err && err.message) || err));
+      throw engineError(err || {});
     }
   }
   if (!ext.offscreen) {
@@ -409,7 +418,7 @@ async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
       port = p;
       port.onMessage.addListener((m) => {
         if (m.type === 'result') finish(resolve, m.result);
-        else if (m.type === 'error') finish(reject, new ProviderError(m.kind || 'unknown', m.message));
+        else if (m.type === 'error') finish(reject, engineError(m));
         else onEvent(m);
       });
       port.onDisconnect.addListener(() => finish(reject, new ProviderError('network', 'The built-in model stopped unexpectedly.')));
@@ -464,33 +473,52 @@ async function answerLocally(s, msg, post, signal) {
       `That question is too long for the built-in model, which reads about ${R.LIMITS.localChatChars.toLocaleString('en-US')} characters at a time. Shorten it, or pick an API-key provider in settings.`,
     );
   }
-  const { chat, page } = context(msg, post, {
-    chatChars: room,
-    turnChars: Math.min(R.LIMITS.localTurnChars, room),
-    pageChars: Math.min(R.LIMITS.localPageChars, room),
-  });
-  // Stops generation when the model starts writing a made-up next turn,
-  // except in answers about an attached chat (see turnFilter).
-  const done = new AbortController();
-  const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort(), { cut: !chat });
-  try {
-    await engineRequest(
-      { type: 'generate', key: model.id, system: localSystemPrompt(chat, page), user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
-      {
-        signal: AbortSignal.any([signal, done.signal]),
-        onEvent: (e) => {
-          if (e.type === 'delta') filter.push(e.text);
-          else if (e.type === 'loading') post({ type: 'loading' });
+  const ask = async (chars) => {
+    const { chat, page } = context(msg, post, {
+      chatChars: chars,
+      turnChars: Math.min(R.LIMITS.localTurnChars, chars),
+      pageChars: Math.min(R.LIMITS.localPageChars, chars),
+    });
+    // Stops generation when the model starts writing a made-up next turn,
+    // except in answers about an attached chat (see turnFilter).
+    const done = new AbortController();
+    const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort(), { cut: !chat });
+    try {
+      const result = await engineRequest(
+        { type: 'generate', key: model.id, system: localSystemPrompt(chat, page), user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
+        {
+          signal: AbortSignal.any([signal, done.signal]),
+          onEvent: (e) => {
+            if (e.type === 'delta') filter.push(e.text);
+            else if (e.type === 'loading') post({ type: 'loading' });
+          },
         },
-      },
-    );
-    filter.end();
+      );
+      filter.end();
+      return { stopReason: result && result.limited ? 'max_tokens' : 'end_turn' };
+    } catch (err) {
+      // The answer ended where the made-up turn began.
+      if (filter.stopped && !signal.aborted) return { stopReason: 'end_turn' };
+      throw err;
+    }
+  };
+  try {
+    try {
+      return await ask(room);
+    } catch (err) {
+      // Characters only estimate tokens (code has more per character than
+      // prose), so a prompt can still be too long for this GPU. The engine
+      // refuses it before it runs, and the chat or page is cut to fit.
+      if (err.kind !== 'tooLong' || !(msg.chat || msg.page) || !(err.tokens > 0)) throw err;
+      return await ask(Math.floor(room * (err.limit / err.tokens) * 0.85));
+    }
   } catch (err) {
-    // The answer ended where the made-up turn began.
-    if (filter.stopped && !signal.aborted) return;
     // The engine found the download missing from the cache, so it isn't
     // ready any more.
     if (err.kind === 'localMissing') await forgetLocal(model.id);
+    if (err.kind === 'tooLong') {
+      throw new ProviderError('unknown', "That's more than the built-in model can read at once. Shorten the question, or turn Read chat off.");
+    }
     throw err;
   }
 }

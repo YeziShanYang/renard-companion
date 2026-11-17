@@ -30,7 +30,7 @@ ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!req || !req.type) return;
     handle(req.type, req, post, controller.signal).then(
       (result) => post({ type: 'result', result }),
-      (err) => post({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err) }),
+      (err) => post({ type: 'error', kind: err.kind || 'unknown', message: String((err && err.message) || err), tokens: err.tokens, limit: err.limit }),
     );
   });
   sendResponse({ ok: true });
