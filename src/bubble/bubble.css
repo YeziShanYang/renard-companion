@@ -789,6 +789,67 @@ body {
   gap: 10px;
 }
 
+.asked-shot {
+  display: inline-block;
+  margin-inline-end: 6px;
+  color: var(--muted);
+  vertical-align: -1px;
+}
+
+.asked-shot > .px-icon {
+  display: inline;
+  width: 14px;
+  height: auto;
+}
+
+/* The Read chat switch and the screenshot button, on the row's left. */
+.ask-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* ---- attached image ------------------------------------------------------ */
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px;
+}
+
+.attachment-thumb {
+  display: block;
+  max-width: 96px;
+  max-height: 48px;
+  background: var(--panel);
+  box-shadow:
+    0 -2px 0 0 var(--ink),
+    0 2px 0 0 var(--ink),
+    -2px 0 0 0 var(--ink),
+    2px 0 0 0 var(--ink);
+}
+
+.attachment-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: var(--ui-size) / 1.25 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* An image file dragged over the bubble: the input shows where it goes. */
+.panel[data-dropping='true'] .input-box {
+  box-shadow:
+    0 -2px 0 0 var(--focus),
+    0 2px 0 0 var(--focus),
+    -2px 0 0 0 var(--focus),
+    2px 0 0 0 var(--focus);
+}
+
 /* ---- read-chat switch ---------------------------------------------------- */
 
 .switch {

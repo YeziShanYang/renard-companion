@@ -414,3 +414,53 @@
     transition: none;
   }
 }
+
+/* ---- screenshot picker ------------------------------------------------- */
+
+/* While a screenshot is chosen and taken, everything of Renard's but the
+   picker is hidden at once, so none of it lands in the image. */
+.renard-root[data-capturing] > :not(.region-layer) {
+  visibility: hidden !important;
+  transition: none !important;
+}
+
+.region-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: auto;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, 0.35);
+  touch-action: none;
+  outline: none;
+}
+
+/* Once a box is drawn, its shadow does the dimming around it. */
+.region-layer[data-dragging='true'] {
+  background: transparent;
+}
+
+.region-box {
+  position: fixed;
+  box-sizing: border-box;
+  border: 2px dashed var(--orange);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35);
+}
+
+.region-hint {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text);
+  font: var(--ui-size) / 1.25 var(--font-ui);
+  text-align: center;
+  translate: -50% 0;
+  pointer-events: none;
+}
+
+.region-layer[data-dragging='true'] .region-hint {
+  visibility: hidden;
+}

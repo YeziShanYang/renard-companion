@@ -25,6 +25,24 @@
     }
   }
 
+  // Pasted or dropped files: images within this size are scaled down and
+  // attached. The thumbnail fits in this many CSS pixels.
+  const MAX_FILE_BYTES = 40e6;
+  const NO_CAPTURE =
+    'Screenshots need access to all websites, which the browser asks for. You can still paste or drop an image into the question box.';
+  const THUMB_WIDTH = 96;
+  const THUMB_HEIGHT = 48;
+
+  function hasFiles(dataTransfer) {
+    return Boolean(dataTransfer) && Array.from(dataTransfer.types || []).includes('Files');
+  }
+
+  // The first image file in a paste or drop, if any.
+  function imageFile(dataTransfer) {
+    if (!dataTransfer) return null;
+    return Array.from(dataTransfer.files || []).find((f) => f.type.startsWith('image/')) || null;
+  }
+
   function iconButton(name, label, onclick, extra = {}) {
     return h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, onclick, ...extra }, [R.icon(name)]);
   }
@@ -61,7 +79,9 @@
       // never squeezes either of them. While a question is shown both keep
       // to one line, with the full text in the tooltip.
       this.askedText = h('span', { class: 'asked-text' });
-      this.asked = h('p', { class: 'asked', hidden: true }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedText]);
+      // A camera after the label when an image went with the question.
+      this.askedShot = h('span', { class: 'asked-shot', hidden: true }, [R.icon('camera', 1), h('span', { class: 'sr-only' }, 'with a screenshot')]);
+      this.asked = h('p', { class: 'asked', hidden: true }, [h('span', { class: 'asked-label' }, 'You asked: '), this.askedShot, this.askedText]);
       const head = h('header', { class: 'head' }, [
         h('div', { class: 'head-text' }, [this.line, this.asked]),
         h('div', { class: 'head-actions' }, [this.answerActions, h('div', { class: 'head-group' }, [this.expandBtn, closeBtn])]),
@@ -106,10 +126,31 @@
 
       this.sendLabel = h('span', {}, 'Ask');
       this.sendBtn = h('button', { type: 'submit', class: 'btn btn-primary send-btn' }, [R.icon('stop'), this.sendLabel]);
-      this.form = h('form', { class: 'ask' }, [
-        h('div', { class: 'input-box' }, [this.input, h('span', { class: 'block-caret', 'aria-hidden': 'true' })]),
-        h('div', { class: 'ask-row' }, [this.readLabel, this.sendBtn]),
+      this.snipBtn = iconButton('camera', 'Add a screenshot', () => this.requestCapture());
+      this.imagesOn = true;
+      this.imagesWhy = '';
+
+      // The image waiting to go with the next question: a thumbnail (drawn
+      // on a canvas, since this page's CSP allows no data: images), its
+      // size, and a button that removes it.
+      this.thumb = h('canvas', { class: 'attachment-thumb', 'aria-hidden': 'true' });
+      this.attachmentText = h('span', { class: 'attachment-text' });
+      this.attachmentRow = h('div', { class: 'attachment', hidden: true }, [
+        this.thumb,
+        this.attachmentText,
+        iconButton('close', 'Remove the screenshot', () => post({ type: 'detach' })),
       ]);
+      this.form = h('form', { class: 'ask' }, [
+        this.attachmentRow,
+        h('div', { class: 'input-box' }, [this.input, h('span', { class: 'block-caret', 'aria-hidden': 'true' })]),
+        h('div', { class: 'ask-row' }, [h('div', { class: 'ask-tools' }, [this.readLabel, this.snipBtn]), this.sendBtn]),
+      ]);
+      this.input.addEventListener('paste', (e) => {
+        const file = imageFile(e.clipboardData);
+        if (!file) return;
+        e.preventDefault();
+        this.attachFile(file);
+      });
       // The content script decides between asking and stopping: it knows
       // whether an answer is still coming, without a message's delay.
       this.form.addEventListener('submit', (e) => {
@@ -123,6 +164,26 @@
         [head, this.notice, this.qa, this.status, this.form],
       );
       document.body.append(this.el);
+
+      // A dropped image file is attached. Any other dropped file is refused,
+      // rather than opened in place of the bubble.
+      document.addEventListener('dragover', (e) => {
+        if (!hasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = this.imagesOn ? 'copy' : 'none';
+        this.el.dataset.dropping = 'true';
+      });
+      document.addEventListener('dragleave', (e) => {
+        if (!e.relatedTarget) delete this.el.dataset.dropping;
+      });
+      document.addEventListener('drop', (e) => {
+        if (!hasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        delete this.el.dataset.dropping;
+        const file = imageFile(e.dataTransfer);
+        if (file) this.attachFile(file);
+        else this.setNotice({ text: 'Renard can attach PNG, JPEG, WebP or GIF images.' });
+      });
 
       // Keys typed here never reach the site, so Renard's shortcuts and Esc
       // are handled here too.
@@ -242,7 +303,16 @@
           this.setDraft(String(m.text || ''));
           break;
         case 'start':
-          this.startAnswer(String(m.question || ''));
+          this.startAnswer(String(m.question || ''), Boolean(m.screenshot));
+          break;
+        case 'attachment':
+          this.showAttachment(m.image || null);
+          break;
+        case 'images':
+          this.imagesOn = Boolean(m.enabled);
+          this.imagesWhy = String(m.why || '');
+          this.snipBtn.disabled = !this.imagesOn;
+          this.snipBtn.title = this.imagesOn ? 'Add a screenshot' : this.imagesWhy;
           break;
         case 'reset':
           this.reset();
@@ -290,6 +360,69 @@
       this.settingsBtn.hidden = !notice.settings;
     }
 
+    // Browsers screenshot a page only for an extension with access to all
+    // websites, which the browser asks for on the first click. The request
+    // has to start inside the click itself, so it runs before anything is
+    // awaited. Once granted it resolves at once, with no prompt.
+    requestCapture() {
+      let granted;
+      try {
+        granted = ext.permissions.request({ origins: ['<all_urls>'] });
+      } catch (err) {
+        granted = Promise.reject(err);
+      }
+      granted.then(
+        (ok) => (ok ? post({ type: 'capture' }) : this.setNotice({ text: NO_CAPTURE })),
+        () => this.setNotice({ text: NO_CAPTURE }),
+      );
+    }
+
+    // A pasted or dropped image file, scaled here and handed to the content
+    // script, which keeps it for the next question.
+    async attachFile(file) {
+      if (!this.imagesOn) {
+        this.setNotice({ text: this.imagesWhy });
+        return;
+      }
+      if (!R.IMAGE_INPUT_TYPES.includes(file.type)) {
+        this.setNotice({ text: 'Renard can attach PNG, JPEG, WebP or GIF images.' });
+        return;
+      }
+      if (file.size > MAX_FILE_BYTES) {
+        this.setNotice({ text: 'That image is too large to attach (over 40 MB).' });
+        return;
+      }
+      try {
+        post({ type: 'attach', image: await R.prepareImage(file) });
+      } catch {
+        this.setNotice({ text: "Couldn't read that image." });
+      }
+    }
+
+    async showAttachment(image) {
+      const token = (this.attachmentToken = {});
+      if (!image) {
+        this.attachmentRow.hidden = true;
+        return;
+      }
+      this.attachmentText.textContent = `Screenshot · ${image.width}×${image.height}`;
+      this.attachmentRow.hidden = false;
+      try {
+        const bitmap = await createImageBitmap(R.base64Blob(image.data, image.mediaType));
+        if (token !== this.attachmentToken) return bitmap.close();
+        // Drawn at twice its displayed size, for sharp high-DPI screens.
+        const scale = Math.min(1, (THUMB_HEIGHT * 2) / bitmap.height, (THUMB_WIDTH * 2) / bitmap.width);
+        this.thumb.width = Math.max(1, Math.round(bitmap.width * scale));
+        this.thumb.height = Math.max(1, Math.round(bitmap.height * scale));
+        const ctx = this.thumb.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bitmap, 0, 0, this.thumb.width, this.thumb.height);
+        bitmap.close();
+      } catch {
+        // The size text still shows that an image is attached.
+      }
+    }
+
     setDraft(text) {
       this.input.value = text;
       this.autosize();
@@ -310,13 +443,14 @@
       if (select && this.input.value) this.input.select();
     }
 
-    startAnswer(question) {
+    startAnswer(question, screenshot = false) {
       this.qa.hidden = false;
       this.asked.hidden = false;
       this.el.dataset.asked = 'true';
       this.answerActions.hidden = false;
+      this.askedShot.hidden = !screenshot;
       this.askedText.textContent = question;
-      this.asked.title = question;
+      this.asked.title = screenshot ? `With a screenshot: ${question}` : question;
       this.setNote('');
       this.setNotice(null);
       this.setAnswer('', { streaming: true });

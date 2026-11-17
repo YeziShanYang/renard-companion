@@ -180,16 +180,21 @@ function clamp(n, min, max) {
 // the extension's connect-src.
 function dataUrlBlob(url) {
   const comma = url.indexOf(',');
-  const type = url.slice(5, comma).split(';')[0];
-  const binary = atob(url.slice(comma + 1));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type });
+  return R.base64Blob(url.slice(comma + 1), url.slice(5, comma).split(';')[0]);
 }
 
-// The visible part of a tab, as a PNG data: URL.
-function captureTab(tab) {
-  return ext.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+// The visible part of a tab, as a PNG data: URL. Both browsers require
+// access to all websites (or a fresh toolbar or shortcut use) for this; the
+// bubble asks for that access when the camera is clicked.
+async function captureTab(tab) {
+  try {
+    return await ext.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+  } catch (err) {
+    if (/activeTab|all_urls|permission/i.test(String((err && err.message) || err))) {
+      throw new Error('Renard needs access to all websites to take screenshots. Click the camera again to allow it.');
+    }
+    throw err;
+  }
 }
 
 let capturing = false;

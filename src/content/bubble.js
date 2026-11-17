@@ -169,6 +169,16 @@
         case 'blip':
           H.onBlip();
           break;
+        case 'capture':
+          H.onCapture();
+          break;
+        // A picture pasted or dropped into the frame, already scaled there.
+        case 'attach':
+          if (R.isAttachedImage(m.image)) H.onAttach(m.image);
+          break;
+        case 'detach':
+          H.onAttach(null);
+          break;
         default:
           break;
       }
@@ -306,11 +316,22 @@
       this.once({ type: 'draft', text });
     }
 
-    startAnswer(question) {
+    // screenshot: an image went with the question.
+    startAnswer(question, { screenshot = false } = {}) {
       this.answering = true;
       this.markdown = '';
       for (const kind of ['answer', 'note']) this.state.delete(kind);
-      this.keep('start', { type: 'start', question });
+      this.keep('start', { type: 'start', question, screenshot: Boolean(screenshot) });
+    }
+
+    // The image waiting to go with the next question, or null.
+    setAttachment(image) {
+      this.keep('attachment', { type: 'attachment', image: image || null });
+    }
+
+    // Whether screenshots can be attached, and why not when they can't.
+    setImages(enabled, why = '') {
+      this.keep('images', { type: 'images', enabled: Boolean(enabled), why });
     }
 
     reset() {

@@ -40,6 +40,9 @@
   };
 
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
+  const IMAGES_OFF = "The built-in model can't read images. Pick an API-key provider in settings to attach screenshots.";
 
   // The fox is mid-move: reactions, clicks and the bubble wait until it lands,
   // so nothing can strand it walking in place.
@@ -76,6 +79,9 @@
       this.clicks = [];
       this.port = null;
       this.last = null;
+      // The image waiting to go with the next question.
+      this.attachment = null;
+      this.capturing = false;
       this.hidden = false;
       this.timers = {};
       this.observers = [];
@@ -126,6 +132,12 @@
         onReadChatChange: (on) => this.setReadChat(on),
         onOpenSettings: () => R.send('renard:openOptions').catch(() => {}),
         onClear: () => this.clearAnswer(),
+        onCapture: () => this.capture(),
+        onAttach: (image) => {
+          if (image && !this.imagesEnabled()) return;
+          this.setAttachment(image);
+          if (image) this.bubble.setNotice(null);
+        },
         // Keys typed in the bubble stay in its frame, which reports shortcuts.
         onCommand: (cmd) => {
           delete this.fox.el.dataset.pointer;
@@ -339,6 +351,8 @@
         else state.prefs.readChat = this.pendingReadChat;
       }
       this.bubble.setReadChat(state.prefs.readChat);
+      this.bubble.setImages(this.imagesEnabled(), IMAGES_OFF);
+      if (this.attachment && !this.imagesEnabled()) this.setAttachment(null);
       // A bubble placed or being resized by hand keeps its size.
       if (!this.freePlaced && !this.bubble.el.dataset.resizing) this.bubbleSize = { ...state.bubble, expanded: this.bubbleSize.expanded };
       this.shortcuts = {};
@@ -928,6 +942,43 @@
       R.send('renard:savePrefs', { prefs: { readChat: on } }).catch(() => {});
     }
 
+    // ---- screenshots ------------------------------------------------------
+
+    imagesEnabled() {
+      return this.state.provider !== 'local';
+    }
+
+    setAttachment(image) {
+      this.attachment = image || null;
+      this.bubble.setAttachment(this.attachment);
+    }
+
+    // Hides Renard, lets the user pick a region, and attaches a screenshot
+    // of it. The bubble stays open underneath and comes back with the
+    // image, or with a notice saying what went wrong.
+    async capture() {
+      if (this.capturing || !this.imagesEnabled()) return;
+      this.capturing = true;
+      this.root.dataset.capturing = 'true';
+      try {
+        const rect = await R.pickRegion(this.root);
+        if (!rect) return;
+        // Two frames, so the page is drawn again without the picker.
+        await nextFrame();
+        await nextFrame();
+        const image = await R.send('renard:capture', { site: this.site.id, rect, viewport: { w: innerWidth, h: innerHeight } });
+        if (!R.isAttachedImage(image)) throw new Error('The screenshot came back empty.');
+        this.setAttachment(image);
+        this.bubble.setNotice(null);
+      } catch (err) {
+        this.bubble.setNotice({ text: `Couldn't take the screenshot. ${scrubError((err && err.message) || err)}` });
+      } finally {
+        delete this.root.dataset.capturing;
+        this.capturing = false;
+        if (this.bubble.isOpen) this.bubble.focusInput();
+      }
+    }
+
     // ---- asking -----------------------------------------------------------
 
     ask(raw) {
@@ -965,8 +1016,12 @@
       }
       const reading = this.adapter.kind === 'page' ? 'page' : 'chat';
 
-      this.last = { question };
-      this.bubble.startAnswer(question);
+      // The image goes with this question only. failed() puts it back if no
+      // answer arrives, so asking again sends it again.
+      const image = this.attachment;
+      if (image) this.setAttachment(null);
+      this.last = { question, image };
+      this.bubble.startAnswer(question, { screenshot: Boolean(image) });
       // The answer area just appeared; apply the remembered size unless the
       // user has placed the bubble by hand.
       if (!this.freePlaced) this.placeBubble();
@@ -1033,7 +1088,7 @@
         this.failed({ kind: 'network', message: 'Lost the connection to the extension. Try again.' }, text);
       });
       try {
-        port.postMessage({ type: 'ask', question, chat, page });
+        port.postMessage({ type: 'ask', question, chat, page, image });
       } catch {
         release();
         this.failed({ kind: 'network', message: 'Renard was updated. Reload the page to keep going.' }, '');
@@ -1053,6 +1108,7 @@
 
     failed(m, text) {
       const e = ERRORS[m.kind] || ERRORS.unknown;
+      if ((!text || e.discard) && this.last && this.last.image && !this.attachment) this.setAttachment(this.last.image);
       this.bubble.setAnswer(e.discard ? '' : text, { streaming: false });
       this.bubble.setNotice({ text: this.errorDetail(m), settings: e.settings });
       const line = this.line(e.line);
@@ -1094,6 +1150,7 @@
     clearAnswer() {
       this.cancelAsk();
       this.last = null;
+      this.setAttachment(null);
       this.bubble.reset();
       this.bubble.setLine(this.line('cleared'), { onChar: this.blip });
       if (['thinking', 'reacting'].includes(this.mode)) this.rest();

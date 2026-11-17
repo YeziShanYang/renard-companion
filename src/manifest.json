@@ -39,7 +39,7 @@
     "https://api.openai.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
-  "optional_host_permissions": ["https://*/*"],
+  "optional_host_permissions": ["https://*/*", "<all_urls>"],
   "web_accessible_resources": [
     {
       "resources": ["bubble/bubble.html"],
@@ -51,6 +51,7 @@
       "matches": ["https://claude.ai/*", "https://chatgpt.com/*", "https://chat.openai.com/*"],
       "js": [
         "shared/constants.js",
+        "shared/image.js",
         "content/pixel.js",
         "content/markdown.js",
         "content/sprite.js",
@@ -62,6 +63,7 @@
         "content/adapters/web.js",
         "content/fox.js",
         "content/bubble.js",
+        "content/region.js",
         "content/app.js",
         "content/main.js"
       ],
