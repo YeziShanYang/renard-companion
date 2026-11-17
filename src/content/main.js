@@ -16,6 +16,14 @@
     site = R.webSite(location.hostname);
   }
   if (!site || window.top !== window) return;
+  // Renard's element needs an HTML page: an SVG or XML file opened on its
+  // own has no place for it. (Chrome shows plain XML in an HTML viewer whose
+  // new elements still aren't HTML, so that's checked too.)
+  if (!(document.documentElement instanceof HTMLHtmlElement) || !(document.createElement('div') instanceof HTMLElement)) return;
+  // A page sandboxed by its security policy (raw files on some code hosts)
+  // has an opaque origin, and the bubble's frame would inherit the sandbox
+  // and stay empty.
+  if (self.origin === 'null') return;
 
   let app = null;
   let assets = null;

@@ -124,7 +124,7 @@
         if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
           e.preventDefault();
           // A held Enter sends once, not thirty asks and stops a second.
-          if (!e.repeat) this.form.requestSubmit();
+          if (!e.repeat) this.submit();
         }
       });
 
@@ -139,7 +139,10 @@
       ]);
 
       this.sendLabel = h('span', {}, 'Ask');
-      this.sendBtn = h('button', { type: 'submit', class: 'btn btn-primary send-btn' }, [R.icon('stop'), this.sendLabel]);
+      // Not a submit button: a page sandboxed without allow-forms passes
+      // that to this frame, and form submission is blocked there.
+      this.sendBtn = h('button', { type: 'button', class: 'btn btn-primary send-btn' }, [R.icon('stop'), this.sendLabel]);
+      this.sendBtn.addEventListener('click', () => this.submit());
       this.snipBtn = iconButton('camera', 'Add a screenshot', () => this.requestCapture());
       this.imagesOn = true;
       this.imagesWhy = '';
@@ -165,11 +168,9 @@
         e.preventDefault();
         this.attachFile(file);
       });
-      // The content script decides between asking and stopping: it knows
-      // whether an answer is still coming, without a message's delay.
       this.form.addEventListener('submit', (e) => {
         e.preventDefault();
-        post({ type: 'submit', question: this.input.value, readChat: this.readChat.checked });
+        this.submit();
       });
 
       this.el = h(
@@ -455,6 +456,13 @@
     setDraft(text) {
       this.input.value = text;
       this.autosize();
+    }
+
+    // Enter or the Ask/Stop button. The content script decides between
+    // asking and stopping: it knows whether an answer is still coming,
+    // without a message's delay.
+    submit() {
+      post({ type: 'submit', question: this.input.value, readChat: this.readChat.checked });
     }
 
     autosize() {
