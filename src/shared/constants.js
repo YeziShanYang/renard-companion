@@ -84,9 +84,11 @@
     return !isFirefox && hasF16 ? 'q4f16' : 'q4';
   };
 
+  // Exact hosts only, as the content scripts match: support.claude.ai is
+  // not claude.ai's chat, and can be added as a website of its own.
   R.siteForHost = function (hostname) {
     for (const site of Object.values(R.SITES)) {
-      if (site.hosts.some((h) => hostname === h || hostname.endsWith('.' + h))) return site;
+      if (site.hosts.includes(hostname)) return site;
     }
     return null;
   };
