@@ -534,7 +534,7 @@ async function answer(msg, post, signal) {
   const question = clipStart(String(msg.question || ''), 20000);
   if (msg.image && !R.isAttachedImage(msg.image)) throw new ProviderError('unknown', "The attached image couldn't be read. Remove it and try again.");
   const images = msg.image ? [{ mediaType: msg.image.mediaType, data: msg.image.data }] : [];
-  await streamAnswer(provider.id, {
+  return streamAnswer(provider.id, {
     apiKey,
     model,
     system: SYSTEM_PROMPT,
@@ -600,7 +600,7 @@ ext.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener((msg) => {
     if (!msg || msg.type !== 'ask') return;
     answer(msg, post, controller.signal).then(
-      () => post({ type: 'done' }),
+      (result) => post({ type: 'done', limited: Boolean(result && result.stopReason === 'max_tokens') }),
       (err) => {
         const e = err instanceof ProviderError ? err : new ProviderError('unknown', String(err?.message || err));
         if (e.kind !== 'aborted') post({ type: 'error', kind: e.kind, message: e.message, status: e.status });

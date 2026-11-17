@@ -1075,7 +1075,7 @@
           this.bubble.setAnswer(text, { streaming: true });
         } else if (m.type === 'done') {
           release();
-          this.answered(text);
+          this.answered(text, { limited: m.limited === true });
         } else if (m.type === 'error') {
           release();
           this.failed(m, text);
@@ -1095,9 +1095,11 @@
       }
     }
 
-    answered(text) {
+    // limited: the answer stopped at the model's output limit.
+    answered(text, { limited = false } = {}) {
       this.bubble.setAnswer(text, { streaming: false });
       if (!text) this.bubble.setNote('Hmm, the answer came back empty. Try asking again?');
+      else if (limited) this.bubble.setNote("This answer reached the model's length limit, so it ends early.");
       const line = this.line('answered');
       this.bubble.setLine(line, { onChar: this.blip });
       this.bubble.announce('Answer ready');

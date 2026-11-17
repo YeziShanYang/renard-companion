@@ -101,7 +101,7 @@ test('Anthropic: a 400 from optional fields retries once without them', async ()
     const body = JSON.parse(init.body);
     bodies.push(body);
     if (body.output_config) return json(400, { error: { type: 'invalid_request_error', message: 'output_config: not supported' } });
-    return sse(['data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}\n\n']);
+    return sse(['data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}\n\ndata: {"type":"message_stop"}\n\n']);
   };
   let out = '';
   await streamAnswer('anthropic', { apiKey: 'k', model: anthropicModel, system: '', user: 'q', onDelta: (t) => (out += t) });
@@ -129,7 +129,7 @@ test('Anthropic: unknown model limits fall back to a safe max_tokens and no opti
   let body;
   globalThis.fetch = async (_url, init) => {
     body = JSON.parse(init.body);
-    return sse([]);
+    return sse(['data: {"type":"message_stop"}\n\n']);
   };
   await streamAnswer('anthropic', { apiKey: 'k', model: { id: 'claude-haiku-4-5' }, system: '', user: 'q', onDelta() {} });
   assert.equal(body.max_tokens, 4096);
@@ -247,7 +247,8 @@ test('listModels: Gemini pagination, header auth, newest family first', async ()
   const list = await listModels('gemini', 'g-key');
   assert.deepEqual(list, [
     { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', maxTokens: 65536, effortLow: true },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', maxTokens: 65536, effortLow: true },
+    // thinkingLevel is for Gemini 3 and later.
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', maxTokens: 65536, effortLow: false },
     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', maxTokens: 8192, effortLow: false },
   ]);
   assert.equal(calls[0].u.pathname, '/v1beta/models');
@@ -342,7 +343,7 @@ test('an attached image goes before the text in each provider request', async ()
     const u = String(url);
     const name = u.includes('anthropic') ? 'anthropic' : u.includes('openai') ? 'openai' : 'gemini';
     bodies[name] = JSON.parse(init.body);
-    if (name === 'anthropic') return sse(['data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n']);
+    if (name === 'anthropic') return sse(['data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\ndata: {"type":"message_stop"}\n\n']);
     if (name === 'openai') return sse(['data: {"type":"response.completed","response":{}}\n\n']);
     return sse(['data: {"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}\n\n']);
   };
@@ -379,7 +380,7 @@ test('without images, each request keeps its plain-text shape', async () => {
   globalThis.fetch = async (url, init) => {
     const u = String(url);
     bodies[u.includes('anthropic') ? 'anthropic' : 'openai'] = JSON.parse(init.body);
-    return sse(['data: {"type":"response.completed","response":{}}\n\n']);
+    return sse(['data: {"type":"response.completed","response":{}}\n\ndata: {"type":"message_stop"}\n\n']);
   };
   const common = { apiKey: 'k', system: 'sys', user: 'q', images: [], onDelta: () => {} };
   await streamAnswer('anthropic', { ...common, model: { id: 'claude-x' } });
@@ -397,4 +398,60 @@ test('a model that rejects images reports imageUnsupported; other 400s stay as t
   await assert.rejects(call('Invalid content type. image_url is only supported by certain models.', [image]), { kind: 'imageUnsupported' });
   await assert.rejects(call('Image exceeds the 5 MB maximum.', [image]), { kind: 'unknown' });
   await assert.rejects(call('Invalid content type. image_url is only supported by certain models.', []), { kind: 'unknown' });
+});
+
+test('a stream that ends before the provider finishes is reported as cut off', async () => {
+  const cases = [
+    ['anthropic', { id: 'claude-x' }, 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Half an ans"}}\n\n'],
+    ['openai', { id: 'gpt-4o' }, 'data: {"type":"response.output_text.delta","delta":"Half an ans"}\n\n'],
+    ['gemini', { id: 'gemini-x' }, 'data: {"candidates":[{"content":{"parts":[{"text":"Half an ans"}]}}]}\n\n'],
+  ];
+  for (const [provider, model, body] of cases) {
+    globalThis.fetch = async () => sse([body]);
+    let out = '';
+    await assert.rejects(
+      streamAnswer(provider, { apiKey: 'k', model, system: '', user: 'q', onDelta: (t) => (out += t) }),
+      (e) => e.kind === 'network' && /cut off/.test(e.message),
+      provider,
+    );
+    assert.equal(out, 'Half an ans', provider);
+  }
+});
+
+test('an answer that hits the output limit says so; a filtered one is a refusal', async () => {
+  const run = (provider, model, body) => {
+    globalThis.fetch = async () => sse([body]);
+    return streamAnswer(provider, { apiKey: 'k', model, system: '', user: 'q', onDelta() {} });
+  };
+  assert.equal(
+    (await run('anthropic', { id: 'claude-x' }, 'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\ndata: {"type":"message_stop"}\n\n')).stopReason,
+    'max_tokens',
+  );
+  assert.equal(
+    (await run('openai', { id: 'gpt-4o' }, 'data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}\n\n')).stopReason,
+    'max_tokens',
+  );
+  assert.equal((await run('gemini', { id: 'gemini-x' }, 'data: {"candidates":[{"content":{"parts":[{"text":"a"}]},"finishReason":"MAX_TOKENS"}]}\n\n')).stopReason, 'max_tokens');
+  await assert.rejects(
+    run('openai', { id: 'gpt-4o' }, 'data: {"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}\n\n'),
+    { kind: 'refused' },
+  );
+  await assert.rejects(run('anthropic', { id: 'claude-x' }, 'event: error\ndata: upstream connect error\n\n'), (e) => e.kind === 'network' && e.message === 'upstream connect error');
+});
+
+test('a 400 is retried without optional fields only when it names one', async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return json(400, { error: { type: 'invalid_request_error', message: 'prompt is too long: 250000 tokens > 200000 maximum' } });
+  };
+  await assert.rejects(streamAnswer('anthropic', { apiKey: 'k', model: anthropicModel, system: '', user: 'q', onDelta() {} }), { status: 400 });
+  assert.equal(calls, 1);
+});
+
+test('error text never shows as [object Object], and a Gemini error array is read', async () => {
+  globalThis.fetch = async () => json(500, { error: { code: 'server_error' } });
+  await assert.rejects(streamAnswer('openai', { apiKey: 'k', model: { id: 'gpt-4o' }, system: '', user: 'q', onDelta() {} }), (e) => !/object Object/.test(e.message));
+  globalThis.fetch = async () => json(400, [{ error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } }]);
+  await assert.rejects(streamAnswer('gemini', { apiKey: 'k', model: { id: 'gemini-x' }, system: '', user: 'q', onDelta() {} }), { kind: 'keyInvalid' });
 });

@@ -19,6 +19,7 @@ const ANTHROPIC_FALLBACK_MODELS = new Set([
   'claude-mythos-5-2',
   'claude-fable-5-1',
   'claude-mythos-5-1',
+  'claude-fable-5',
   'claude-opus-5-5',
   'claude-opus-5',
   'claude-sonnet-5-5',
@@ -153,14 +154,29 @@ function parseData(ev) {
   try {
     return JSON.parse(ev.data);
   } catch {
+    // An error event whose data isn't JSON still ends the answer.
+    if (ev.event === 'error') throw new ProviderError('network', ev.data.slice(0, 300) || 'Stream error');
     return null;
   }
+}
+
+// A stream that ends before the provider says the answer is finished was
+// cut off on the way (a dropped connection or a proxy timeout).
+function cutOff() {
+  return new ProviderError('network', 'The answer was cut off before it finished. Try again.');
 }
 
 function toProviderError(err) {
   if (err instanceof ProviderError) return err;
   if (err && err.name === 'AbortError') return new ProviderError('aborted', 'Request cancelled');
   return new ProviderError('network', (err && err.message) || 'Network error');
+}
+
+// The error in a failed response's body: { error: { message } } from all
+// three providers, sometimes inside an array from Gemini, or a bare string.
+function errorOf(body) {
+  const b = Array.isArray(body) ? body[0] : body;
+  return (b && typeof b === 'object' && b.error) || null;
 }
 
 async function request(url, init) {
@@ -177,20 +193,29 @@ async function request(url, init) {
     } catch {
       // Non-JSON error body; fall back to the status line.
     }
-    const message = (body && body.error && (body.error.message || body.error)) || res.statusText || `HTTP ${res.status}`;
-    throw new ProviderError(classifyHttpError(res.status, body), String(message), { status: res.status });
+    const err = errorOf(body);
+    const text = typeof err === 'string' ? err : err && typeof err.message === 'string' ? err.message : '';
+    const message = text || res.statusText || `HTTP ${res.status}`;
+    throw new ProviderError(classifyHttpError(res.status, err ? { error: err } : null), message, { status: res.status });
   }
   return res;
 }
 
-// Sends with optional parameters first; if the provider rejects the request
-// as malformed, retries once without them. Covers models that do not accept
-// a given optional field (effort, reasoning, fallbacks).
-async function sendWithOptional(send, optional) {
+// Sends with optional parameters first. If the provider rejects the request
+// with a message that names one of them (mentions), retries once without
+// them. Covers models that do not accept a given optional field (effort,
+// reasoning, fallbacks); any other 400 would only fail again.
+async function sendWithOptional(send, optional, mentions) {
   try {
     return await send(optional);
   } catch (err) {
-    if (err instanceof ProviderError && err.status === 400 && err.kind !== 'keyInvalid' && Object.keys(optional).length) {
+    if (
+      err instanceof ProviderError &&
+      err.status === 400 &&
+      err.kind !== 'keyInvalid' &&
+      Object.keys(optional).length &&
+      mentions.test(err.message)
+    ) {
       return send({});
     }
     throw err;
@@ -290,7 +315,9 @@ export async function listModels(provider, apiKey, { signal } = {}) {
           id,
           name: m.displayName || id,
           maxTokens: Number(m.outputTokenLimit) || null,
-          effortLow: m.thinking === true,
+          // thinkingLevel is for Gemini 3 and later; earlier thinking models
+          // reject it.
+          effortLow: m.thinking === true && geminiVersion(id) >= 3,
         });
       }
       if (!body.nextPageToken) break;
@@ -347,9 +374,10 @@ async function streamAnthropic({ apiKey, model, system, user, images, signal, on
       body: JSON.stringify({ ...base, ...opts }),
       signal,
     });
-  }, optional);
+  }, optional, /effort|output_config|fallback/i);
 
   let stopReason = null;
+  let finished = false;
   for await (const ev of readEvents(res)) {
     const data = parseData(ev);
     if (!data) continue;
@@ -357,6 +385,8 @@ async function streamAnthropic({ apiKey, model, system, user, images, signal, on
       onDelta(data.delta.text);
     } else if (data.type === 'message_delta' && data.delta && data.delta.stop_reason) {
       stopReason = data.delta.stop_reason;
+    } else if (data.type === 'message_stop') {
+      finished = true;
     } else if (data.type === 'error') {
       const e = data.error || {};
       throw new ProviderError(classifyStreamError(e.type), e.message || 'Stream error');
@@ -364,7 +394,8 @@ async function streamAnthropic({ apiKey, model, system, user, images, signal, on
   }
   // Text from a refused attempt is partial; the caller discards it.
   if (stopReason === 'refusal') throw new ProviderError('refused', 'The model declined this request.');
-  return { stopReason };
+  if (!finished) throw cutOff();
+  return { stopReason: stopReason === 'max_tokens' ? 'max_tokens' : stopReason };
 }
 
 async function streamOpenAI({ apiKey, model, system, user, images, signal, onDelta }) {
@@ -381,6 +412,7 @@ async function streamOpenAI({ apiKey, model, system, user, images, signal, onDel
         signal,
       }),
     optional,
+    /reasoning|effort/i,
   );
 
   let stopReason = null;
@@ -402,9 +434,13 @@ async function streamOpenAI({ apiKey, model, system, user, images, signal, onDel
       case 'response.completed':
         stopReason = 'end_turn';
         break;
-      case 'response.incomplete':
-        stopReason = (data.response && data.response.incomplete_details && data.response.incomplete_details.reason) || 'incomplete';
+      case 'response.incomplete': {
+        const reason = (data.response && data.response.incomplete_details && data.response.incomplete_details.reason) || 'incomplete';
+        // A filtered answer is a refusal; its partial text is discarded.
+        if (reason === 'content_filter') throw new ProviderError('refused', 'The response was filtered.');
+        stopReason = reason === 'max_output_tokens' ? 'max_tokens' : reason;
         break;
+      }
       case 'response.failed': {
         const e = (data.response && data.response.error) || {};
         throw new ProviderError(classifyStreamError(e.code), e.message || 'The response failed.');
@@ -416,6 +452,7 @@ async function streamOpenAI({ apiKey, model, system, user, images, signal, onDel
     }
   }
   if (refused && !gotText) throw new ProviderError('refused', 'The model declined this request.');
+  if (!stopReason) throw cutOff();
   return { stopReason };
 }
 
@@ -432,6 +469,7 @@ async function streamGemini({ apiKey, model, system, user, images, signal, onDel
   const res = await sendWithOptional(
     (opts) => request(url, { method: 'POST', headers: geminiHeaders(apiKey), body: JSON.stringify({ ...base, ...opts }), signal }),
     optional,
+    /thinking/i,
   );
 
   let finish = null;
@@ -452,7 +490,8 @@ async function streamGemini({ apiKey, model, system, user, images, signal, onDel
     if (candidate.finishReason) finish = candidate.finishReason;
   }
   if (GEMINI_BLOCKED.has(finish)) throw new ProviderError('refused', `The response was blocked (${finish}).`);
-  return { stopReason: finish === 'STOP' ? 'end_turn' : finish ? finish.toLowerCase() : null };
+  if (!finish) throw cutOff();
+  return { stopReason: finish === 'STOP' ? 'end_turn' : finish === 'MAX_TOKENS' ? 'max_tokens' : finish.toLowerCase() };
 }
 
 // A rejected request that carried an image and names image support in its
