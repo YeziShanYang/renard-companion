@@ -180,7 +180,7 @@ an area. Neither is stored.
 
 API keys are stored unencrypted in an IndexedDB database of the extension's own
 origin, which Renard's page scripts and the pages themselves can't open. Only
-the background script and the settings page read them. See
+the background script reads them, and the settings page asks it. See
 [PRIVACY.md](PRIVACY.md) for the full policy.
 
 ## How it works

@@ -81,17 +81,21 @@ export function cleanSetting(key, val) {
 // (Chrome only stops them from version 140), so a content process taken
 // over by a malicious page could read the keys there, on every https site
 // once Every website is on. Content scripts run in the page's origin and
-// can't open this database. Clearing site data, including Firefox's
+// can't open this database. (Firefox runs the bubble's extension frame in
+// the page's process, so there a taken-over process could reach it once
+// the bubble has been opened on that page. Pages' own scripts can't.)
+// Clearing site data, including Firefox's
 // "delete cookies and site data when Firefox is closed", leaves extension
 // origins alone. A key-free value in storage.local (apiKeysVersion) tells
 // every page and the background script that the keys changed.
 //
-// Keys found in storage.local (from an earlier version, or saved there when
-// the database couldn't be opened) are the newest copy, so they're read
-// first. The background script moves them into the database and deletes
-// them from storage.local. Only the background script does, so a settings
-// page whose database works can't take keys away from a background script
-// whose database doesn't.
+// Only the background script reads and writes the keys. The settings page
+// asks it for them (renard:apiKeys) and saves through it, so the two never
+// disagree, also where one of them can't open the database (Firefox refuses
+// it to extension pages in a private window). Keys found in storage.local
+// (from an earlier version, or saved there when the database couldn't be
+// opened) are the newest copy, so they're read first, then moved into the
+// database and deleted from storage.local.
 
 const SECRETS_DB = 'renard-secrets';
 let movesKeys = false;
@@ -108,16 +112,22 @@ function secrets(mode, use) {
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
       const db = open.result;
-      const tx = db.transaction('secrets', mode);
-      const req = use(tx.objectStore('secrets'));
-      tx.oncomplete = () => {
+      try {
+        const tx = db.transaction('secrets', mode);
+        const req = use(tx.objectStore('secrets'));
+        tx.oncomplete = () => {
+          db.close();
+          resolve(req.result);
+        };
+        tx.onerror = tx.onabort = () => {
+          db.close();
+          reject(tx.error);
+        };
+      } catch (err) {
+        // A connection the browser closed, or a value it can't store.
         db.close();
-        resolve(req.result);
-      };
-      tx.onerror = tx.onabort = () => {
-        db.close();
-        reject(tx.error);
-      };
+        reject(err);
+      }
     };
   });
 }
@@ -136,8 +146,14 @@ try {
 
 async function loadApiKeys() {
   if (keysCache !== undefined) return keysCache;
-  keysCache = await readApiKeys();
+  keysCache = movesKeys ? await readApiKeys() : await askForApiKeys();
   return keysCache;
+}
+
+async function askForApiKeys() {
+  const res = await ext.runtime.sendMessage({ type: 'renard:apiKeys' });
+  if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');
+  return res.result;
 }
 
 async function readApiKeys() {

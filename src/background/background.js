@@ -349,6 +349,12 @@ const handlers = {
     return { host: msg.host, skipped: skip };
   },
 
+  // The API keys, for the settings page only (see settings.js).
+  'renard:apiKeys': async (msg, sender) => {
+    if (!fromSettings(sender)) throw new Error('Not allowed');
+    return (await loadSettings(['apiKeys'])).apiKeys;
+  },
+
   'renard:openOptions': async () => {
     await ext.runtime.openOptionsPage();
     return { ok: true };
