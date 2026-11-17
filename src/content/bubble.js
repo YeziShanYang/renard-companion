@@ -73,8 +73,9 @@
       if (this.destroyed) return;
       this.frame.addEventListener('load', () => this.handOver());
       // A page that unloads without unmounting still lets its key go.
+      // A pagehide the page dispatched itself is ignored.
       this.onPageHide = (e) => {
-        if (!e.persisted) R.send('renard:bubbleKeyDrop', { instance: this.instance }).catch(() => {});
+        if (e.isTrusted && !e.persisted) R.send('renard:bubbleKeyDrop', { instance: this.instance }).catch(() => {});
       };
       addEventListener('pagehide', this.onPageHide);
       this.frame.src = R.ext.runtime.getURL(`bubble/bubble.html?i=${this.instance}`);

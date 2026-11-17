@@ -32,7 +32,7 @@
   // itself.
   const REPLACE_EVENT = 'renard-companion:replace';
   document.dispatchEvent(new Event(REPLACE_EVENT));
-  for (const el of document.querySelectorAll('renard-companion')) el.remove();
+  for (const el of document.querySelectorAll(R.HOST_SELECTOR)) el.remove();
   document.addEventListener(REPLACE_EVENT, () => {
     // Only a copy whose extension context is gone steps aside, so the page
     // itself can't dispatch this event to switch a live Renard off.
@@ -107,7 +107,7 @@
   // while it was away (settings changed, a model downloaded, Renard sent
   // home), so it asks for the current state.
   addEventListener('pageshow', (e) => {
-    if (e.persisted && R.contextAlive()) sync().catch(() => {});
+    if (e.isTrusted && e.persisted && R.contextAlive()) sync().catch(() => {});
   });
 
   sync().catch((err) => console.warn('[Renard]', err));

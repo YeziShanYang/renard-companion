@@ -101,7 +101,11 @@
       await this.loadFonts();
       const [sheet, fallback] = await Promise.all([this.bitmap(this.assets.sprite), this.bitmap(this.assets.icon)]);
 
-      this.host = document.createElement('renard-companion');
+      // A plain div, not a custom element: a page that defined
+      // <renard-companion> first could reach the closed shadow root through
+      // attachInternals().
+      this.host = document.createElement('div');
+      this.host.setAttribute(R.HOST_ATTR, '');
       this.shadow = this.host.attachShadow({ mode: 'closed' });
       this.root = R.h('div', { class: 'renard-root', 'data-theme': 'light' });
       this.shadow.append(this.root);
@@ -154,7 +158,7 @@
       });
       this.root.append(this.bubble.el, this.fox.el);
       // Clear any fox an older copy of the extension left on the page.
-      for (const stray of document.querySelectorAll('renard-companion')) stray.remove();
+      for (const stray of document.querySelectorAll(R.HOST_SELECTOR)) if (stray !== this.host) stray.remove();
       document.documentElement.append(this.host);
 
       if (this.adapter.kind === 'page') this.bubble.setReadLabel('Read page', "Include this page's text with your question");
@@ -181,6 +185,7 @@
         this.colorScheme.removeEventListener('change', this.onSchemeChange);
         this.fox.cancelMotion();
         this.fox.sprite.stop();
+        this.blipper.close();
         try {
           this.cancelAsk();
         } catch {
@@ -276,6 +281,13 @@
         resizeQueued = true;
         requestAnimationFrame(() => {
           resizeQueued = false;
+          // The fox can't be moved mid-walk or mid-drag, so it waits for the
+          // move to end; otherwise it would finish outside a smaller window.
+          if (this.fox.motion || this.fox.press) {
+            clearTimeout(this.timers.reflow);
+            this.timers.reflow = setTimeout(this.onResize, 250);
+            return;
+          }
           const { min, max } = this.marginRange(this.fox.edge);
           this.inset = Math.min(max, Math.max(min, this.inset));
           this.fox.reflow(this.yFrac, this.inset);
@@ -299,15 +311,26 @@
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
         if (this.orphaned()) return;
+        // A page that replaced <html> itself took Renard with it.
+        if (!this.host.isConnected) this.restoreHost();
         if (location.href === this.lastHref) return;
         this.lastHref = location.href;
         this.updateTheme();
         if (this.bubble.isOpen) this.placeBubble();
       }, 1000);
 
+      // Waits for the page's changes to settle, but no longer than 500 ms, so
+      // a page that restyles <html> every frame still gets its theme.
+      let themeWaitStart = 0;
       const themeObserver = new MutationObserver(() => {
         clearTimeout(this.timers.theme);
-        this.timers.theme = setTimeout(() => this.updateTheme(), 100);
+        const now = performance.now();
+        if (!themeWaitStart) themeWaitStart = now;
+        const delay = Math.max(0, Math.min(100, themeWaitStart + 500 - now));
+        this.timers.theme = setTimeout(() => {
+          themeWaitStart = 0;
+          this.updateTheme();
+        }, delay);
       });
       themeObserver.observe(document.documentElement, {
         attributes: true,
@@ -321,12 +344,30 @@
 
       // Put Renard back if the page replaces the root element's children.
       const hostObserver = new MutationObserver(() => {
-        if (this.host.isConnected) return;
-        if (R.contextAlive()) document.documentElement.append(this.host);
-        else this.unmount();
+        if (!this.host.isConnected) this.restoreHost();
       });
       hostObserver.observe(document.documentElement, { childList: true });
       this.observers.push(hostObserver);
+    }
+
+    // Puts Renard back on the page after the page removed it, at most five
+    // times in ten seconds and never in the same task: a page that strips
+    // every unknown element from <html> would otherwise remove and re-add it
+    // forever and freeze the tab.
+    restoreHost() {
+      if (!R.contextAlive()) {
+        this.unmount();
+        return;
+      }
+      if (this.timers.restore) return;
+      const now = performance.now();
+      this.restores = (this.restores || []).filter((t) => now - t < 10000);
+      if (this.restores.length >= 5) return;
+      this.restores.push(now);
+      this.timers.restore = setTimeout(() => {
+        this.timers.restore = 0;
+        if (!this.unmounted && !this.host.isConnected) document.documentElement.append(this.host);
+      }, 50);
     }
 
     updateTheme() {

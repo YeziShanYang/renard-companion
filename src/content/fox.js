@@ -248,7 +248,10 @@
 
     bindPointer() {
       const b = this.button;
+      // Only the user's own pointer and clicks count, not events a page
+      // script dispatches.
       b.addEventListener('pointerdown', (e) => {
+        if (!e.isTrusted) return;
         this.el.dataset.pointer = 'true';
         if (e.button !== 0) return;
         this.press = { sx: e.clientX, sy: e.clientY, ox: e.clientX - this.x, oy: e.clientY - this.y, dragging: false };
@@ -283,6 +286,7 @@
       // Activation goes through click so Enter and Space work too.
       b.addEventListener('click', (e) => {
         e.stopPropagation();
+        if (!e.isTrusted) return;
         // The click that ends a drag is not an activation.
         if (performance.now() - this.dragEndedAt < 400) return;
         this.onActivate();

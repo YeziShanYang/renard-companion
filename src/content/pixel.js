@@ -22,6 +22,11 @@
     return res.result;
   };
 
+  // Renard's element on the page. Older versions used a <renard-companion>
+  // element, which the selector still finds so a new copy can clear it.
+  R.HOST_ATTR = 'data-renard-companion';
+  R.HOST_SELECTOR = `renard-companion, [${R.HOST_ATTR}]`;
+
   R.reducedMotion = () => globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // h('div', { class: 'x', onclick: fn }, [child, 'text'])
@@ -154,6 +159,11 @@
       } catch {
         // Audio is decorative; ignore failures (autoplay policy, no device).
       }
+    }
+
+    close() {
+      if (this.ctx) this.ctx.close().catch(() => {});
+      this.ctx = null;
     }
   };
 
