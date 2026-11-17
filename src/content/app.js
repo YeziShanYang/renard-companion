@@ -963,6 +963,7 @@
       const width = Math.min(Math.max(wanted, Math.min(360, maxW)), maxW);
       let left = side === 'left' ? r.left + overlap - width : r.right - overlap;
       left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - MARGIN - width));
+      this.markCrowded(left, width, r, overlap);
 
       // Before a question the bubble fits its content (the line and the
       // input): the reading view's height and a dragged-out height wait for
@@ -1020,6 +1021,15 @@
       });
     }
 
+    // In a window too narrow for the bubble beside the fox, the bubble
+    // covers part of the fox. It's drawn above the fox then, so its buttons
+    // stay clickable.
+    markCrowded(left, width, r = this.fox.rect(), overlap = 6) {
+      const side = this.fox.edge === 'right' ? 'left' : 'right';
+      const crowded = side === 'left' ? left + width > r.left + overlap + 1 : left < r.right - overlap - 1;
+      this.bubble.el.dataset.crowded = crowded ? 'true' : 'false';
+    }
+
     // A height the user dragged out, while there is an answer to show: never
     // less than the content needs, never more than the room there is.
     sizedHeight(applies, maxHeight) {
@@ -1061,6 +1071,7 @@
       this.bubbleSize = { width: Math.round(width), height: Math.round(height), expanded: false };
       this.freePlaced = true;
       const r = this.fox.rect();
+      this.markCrowded(left, width, r);
       this.bubble.place({
         side: this.fox.edge === 'right' ? 'left' : 'right',
         anchor: 'top',

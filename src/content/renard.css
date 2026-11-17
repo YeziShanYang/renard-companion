@@ -328,6 +328,11 @@
   color-scheme: dark;
 }
 
+/* Too narrow a window to keep clear of the fox: the bubble goes over it. */
+.bubble[data-crowded='true'] {
+  z-index: 1;
+}
+
 /* Corner drags keep their pointer events even over the frame. */
 .bubble[data-resizing] .bubble-frame {
   pointer-events: none;
