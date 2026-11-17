@@ -320,6 +320,17 @@ const handlers = {
     return { ok: true };
   },
 
+  // Chrome's offscreen document has no model loaded and nothing to do.
+  // Closing it frees the memory WebGPU and ONNX Runtime keep after a model
+  // is disposed (gigabytes after a long prompt). The next question opens it
+  // again.
+  'renard:engineIdle': async (msg, sender) => {
+    if (sender.url !== ext.runtime.getURL('engine/offscreen.html') || sender.tab) throw new Error('Not allowed');
+    if (engineBusy) engineIdle = true;
+    else await closeOffscreen();
+    return { ok: true };
+  },
+
   // Built-in model, from the settings page.
   'renard:localRemove': async (msg, sender) => {
     if (!fromSettings(sender)) throw new Error('Not allowed');
@@ -378,8 +389,6 @@ async function ensureOffscreen() {
   await creatingOffscreen;
 }
 
-// Sends one request to the engine. onEvent receives progress and text;
-// aborting the signal cancels the request.
 // An engine failure as a ProviderError, keeping the token counts of a
 // prompt that was too long.
 function engineError(e) {
@@ -389,7 +398,34 @@ function engineError(e) {
   return err;
 }
 
-async function engineRequest(msg, { onEvent = () => {}, signal } = {}) {
+// Engine requests in progress in Chrome, counted from before the offscreen
+// document is ensured, so an idle report never closes it under a new one.
+// The engine reports idle just before it sends a request's result, so a
+// report that arrives while busy is kept until the last request ends.
+let engineBusy = 0;
+let engineIdle = false;
+
+function closeOffscreen() {
+  engineIdle = false;
+  if (ext.offscreen) return ext.offscreen.closeDocument().catch(() => {});
+  return undefined;
+}
+
+// Sends one request to the engine. onEvent receives progress and text;
+// aborting the signal cancels the request.
+async function engineRequest(msg, opts = {}) {
+  if (ENGINE_IN_PAGE) return engineCall(msg, opts);
+  engineBusy++;
+  engineIdle = false;
+  try {
+    return await engineCall(msg, opts);
+  } finally {
+    engineBusy--;
+    if (!engineBusy && engineIdle) closeOffscreen();
+  }
+}
+
+async function engineCall(msg, { onEvent = () => {}, signal } = {}) {
   if (ENGINE_IN_PAGE) {
     const engine = await import('../engine/engine.js');
     try {

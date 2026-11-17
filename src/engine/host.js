@@ -8,9 +8,13 @@
 // port held here would keep a page's question or a settings download
 // connected after the service worker stopped, so the page would never hear
 // that its answer was lost.
-import { handle } from './engine.js';
+import { handle, onIdle } from './engine.js';
 
 const ext = globalThis.browser ?? globalThis.chrome;
+
+// With nothing loaded and nothing to do, the service worker closes this
+// document to free its memory.
+onIdle(() => ext.runtime.sendMessage({ type: 'renard:engineIdle' }).catch(() => {}));
 
 ext.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Only the background service worker: content scripts and the settings tab

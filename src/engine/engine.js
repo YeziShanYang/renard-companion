@@ -60,10 +60,26 @@ let active = null; // stopper of the generation in progress
 // download, delete or idle unload waits for an answer in progress (and the
 // other way round), so none of them can cut another off or load twice.
 let turn = Promise.resolve();
+let queued = 0;
 function serial(fn) {
+  queued++;
   const run = turn.then(fn, fn);
   turn = run.catch(() => {});
+  run.then(settled, settled);
   return run;
+}
+
+// Called with no model loaded and nothing queued: after the idle unload, a
+// delete, or a failed download. Chrome's host uses it to close the offscreen
+// document, which frees memory that disposing the model leaves held.
+let idleHandler = null;
+export function onIdle(fn) {
+  idleHandler = fn;
+}
+
+function settled() {
+  queued--;
+  if (!queued && !current && idleHandler) idleHandler();
 }
 
 export async function gpuStatus() {
@@ -280,8 +296,12 @@ async function generate(msg, emit, signal) {
 // the returned value is the final result.
 export async function handle(type, msg, emit, signal) {
   switch (type) {
-    case 'status':
-      return gpuStatus();
+    case 'status': {
+      // Settings asks this on opening, with nothing else to do.
+      const status = await gpuStatus();
+      if (!queued && !current && idleHandler) idleHandler();
+      return status;
+    }
 
     case 'prepare':
       return serial(async () => {
