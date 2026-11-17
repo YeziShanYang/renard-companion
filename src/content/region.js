@@ -47,6 +47,9 @@
       const giveUp = setTimeout(cancel, GIVE_UP_MS);
       R.cancelPick = cancel;
       const onKey = (e) => {
+        // Only the user's own keys: a page could fake Enter to take the
+        // whole view (frames it can't read included) instead of the area.
+        if (!e.isTrusted) return;
         if (e.key === 'Escape') {
           e.preventDefault();
           e.stopPropagation();
