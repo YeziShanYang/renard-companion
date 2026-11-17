@@ -5,7 +5,7 @@ import '../shared/constants.js';
 import '../shared/image.js';
 import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins } from '../shared/settings.js';
 import { listModels, streamAnswer, ProviderError } from '../shared/providers.js';
-import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter } from '../shared/prompt.js';
+import { SYSTEM_PROMPT, localSystemPrompt, trimChat, trimPage, buildUserMessage, turnFilter, clipStart } from '../shared/prompt.js';
 import { CACHE_NAME, hasModelFiles } from '../engine/hub.js';
 
 const R = globalThis.Renard;
@@ -453,11 +453,25 @@ async function answerLocally(s, msg, post, signal) {
   if (msg.image) throw new ProviderError('unknown', "The built-in model can't read images. Ask without the screenshot, or pick an API-key provider in settings.");
   const model = R.own(R.LOCAL_MODELS, s.localModel.key) || R.LOCAL_MODELS['gemma-3-1b'];
   if (!R.localReady(s.localModel, model)) throw new ProviderError('localMissing', `Download ${model.name} in settings first.`);
-  const { chat, page } = context(msg, post, { chatChars: R.LIMITS.localChatChars, turnChars: R.LIMITS.localTurnChars, pageChars: R.LIMITS.localPageChars });
-  const question = String(msg.question || '').slice(0, 20000);
-  // Stops generation when the model starts writing a made-up next turn.
+  // The question and the chat or page share one budget: past it, Firefox's
+  // WebGPU run fails (see R.LIMITS).
+  const question = clipStart(String(msg.question || ''), 20000);
+  const room = R.LIMITS.localChatChars - question.length;
+  if (room < 0) {
+    throw new ProviderError(
+      'unknown',
+      `That question is too long for the built-in model, which reads about ${R.LIMITS.localChatChars.toLocaleString('en-US')} characters at a time. Shorten it, or pick an API-key provider in settings.`,
+    );
+  }
+  const { chat, page } = context(msg, post, {
+    chatChars: room,
+    turnChars: Math.min(R.LIMITS.localTurnChars, room),
+    pageChars: Math.min(R.LIMITS.localPageChars, room),
+  });
+  // Stops generation when the model starts writing a made-up next turn,
+  // except in answers about an attached chat (see turnFilter).
   const done = new AbortController();
-  const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort());
+  const filter = turnFilter((text) => post({ type: 'delta', text }), () => done.abort(), { cut: !chat });
   try {
     await engineRequest(
       { type: 'generate', key: model.id, system: localSystemPrompt(chat, page), user: buildUserMessage(question, chat, page), maxNewTokens: 1024 },
@@ -517,7 +531,7 @@ async function answer(msg, post, signal) {
 
   const { chat, page } = context(msg, post);
 
-  const question = String(msg.question || '').slice(0, 20000);
+  const question = clipStart(String(msg.question || ''), 20000);
   if (msg.image && !R.isAttachedImage(msg.image)) throw new ProviderError('unknown', "The attached image couldn't be read. Remove it and try again.");
   const images = msg.image ? [{ mediaType: msg.image.mediaType, data: msg.image.data }] : [];
   await streamAnswer(provider.id, {

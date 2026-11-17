@@ -19,9 +19,10 @@ test('trimChat keeps everything that fits and drops non-chat roles', () => {
   });
 });
 
-test('trimChat keeps the most recent turns within the budget', () => {
+test('trimChat keeps the most recent turns within the budget, counting their tags', () => {
   const turns = Array.from({ length: 10 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: String(i).repeat(30) }));
-  const r = trimChat(turns, { chatChars: 100, turnChars: 1000 });
+  // Each turn costs its 30 characters plus 39 of tags: three fit in 220.
+  const r = trimChat(turns, { chatChars: 220, turnChars: 1000 });
   assert.equal(r.total, 10);
   assert.equal(r.partial, true);
   assert.deepEqual(
@@ -56,8 +57,9 @@ test('buildUserMessage wraps the chat and notes partial context', () => {
   assert.ok(msg.endsWith('Question: summarize'));
 });
 
-test('trimPage keeps the start of the page within the budget', () => {
-  const r = trimPage({ title: '  A   page ', url: 'https://example.com/a', text: `  ${'x'.repeat(50)}  ` }, 20);
+test('trimPage keeps the start of the page within the budget, title and address included', () => {
+  // The title (6) and address (21) take 27 of the 47.
+  const r = trimPage({ title: '  A   page ', url: 'https://example.com/a', text: `  ${'x'.repeat(50)}  ` }, 47);
   assert.equal(r.text, 'x'.repeat(20));
   assert.equal(r.total, 50);
   assert.equal(r.partial, true);
@@ -161,4 +163,43 @@ test('buildUserMessage says when a screenshot is attached', () => {
   assert.ok(withChat.startsWith(`${note}\n\nThe user is looking at this conversation on Claude.`));
   assert.ok(withChat.endsWith('Question: and this?'));
   assert.equal(buildUserMessage('q', null, null), 'q');
+});
+
+test('cuts never split an emoji, and buildUserMessage is always well-formed text', async () => {
+  const { clipStart } = await import('../src/shared/prompt.js');
+  const lone = (t) => /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(t);
+  const fox = '🦊';
+  assert.equal(clipStart(`ab${fox}`, 3), 'ab');
+  assert.equal(clipStart(`ab${fox}`, 4), `ab${fox}`);
+  for (let n = 1; n < 40; n++) {
+    const text = fox.repeat(n);
+    for (let max = 1; max < 2 * n; max++) {
+      assert.ok(!lone(trimPage({ text }, max)?.text || ''), `page ${n}/${max}`);
+      assert.ok(!lone(trimChat([{ role: 'user', text }], { chatChars: 1e6, turnChars: max + 8 }).turns[0].text), `turn ${n}/${max}`);
+    }
+  }
+  assert.equal(buildUserMessage('broken \ud83e text', null, null), 'broken \ufffd text');
+});
+
+test('turnFilter keeps ordinary lines that start with a speaker word, and passes everything with cut off', async () => {
+  const { turnFilter } = await import('../src/shared/prompt.js');
+  const run = (text, opts) => {
+    let out = '';
+    let stops = 0;
+    const f = turnFilter((t) => (out += t), () => stops++, opts);
+    for (const c of text.match(/.{1,5}/gs)) f.push(c);
+    f.end();
+    return { out, stops };
+  };
+  for (const answer of [
+    "Here's what they want:\n\n**User's goal:** to ship on Friday.",
+    'Two topics come up.\n\nAI safety: the page argues for evaluations.',
+    'It has three parts:\n\n* User interface: the bubble.\n* Engine: the model.',
+    'Roles on the team:\n\n### Assistant manager: runs the store.',
+  ]) {
+    assert.deepEqual(run(answer), { out: answer, stops: 0 }, answer);
+  }
+  const summary = 'Here is a summary of the chat:\n\n**User:** asked about foxes.\n**Assistant:** explained their diet.';
+  assert.deepEqual(run(summary, { cut: false }), { out: summary, stops: 0 });
+  assert.equal(run(summary).stops, 1);
 });

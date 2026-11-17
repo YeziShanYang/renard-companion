@@ -41,15 +41,41 @@ function quote(text) {
   return text.replace(/<(\/?)\s*(conversation|message|page)\b/gi, '<$1 $2');
 }
 
+const isHighSurrogate = (code) => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code) => code >= 0xdc00 && code <= 0xdfff;
+
+// The first max characters of text, without ending on the first half of an
+// emoji or other surrogate pair. A lone half is invalid text, and the
+// providers reject a request that contains one.
+export function clipStart(text, max) {
+  if (text.length <= max) return text;
+  const end = max > 0 && isHighSurrogate(text.charCodeAt(max - 1)) ? max - 1 : Math.max(0, max);
+  return text.slice(0, end);
+}
+
+// The last max characters of text, without starting on the second half of a
+// surrogate pair.
+function clipEnd(text, max) {
+  if (text.length <= max) return text;
+  let start = text.length - max;
+  if (isLowSurrogate(text.charCodeAt(start))) start++;
+  return text.slice(start);
+}
+
 function shorten(text, max) {
   if (text.length <= max) return text;
   const head = Math.floor(max * 0.6);
   const tail = max - head;
-  return `${text.slice(0, head)}\n[…]\n${text.slice(-tail)}`;
+  return `${clipStart(text, head)}\n[…]\n${clipEnd(text, tail)}`;
 }
 
-// Keeps the most recent turns that fit in the character budget. Very long
-// single messages keep their beginning and end.
+// The tags buildUserMessage puts around each message, which count against
+// the budget too: on a chat of many short messages they add up to more than
+// the messages themselves.
+const TURN_OVERHEAD = '<message role="assistant">\n\n</message>\n'.length;
+
+// Keeps the most recent turns that fit in the character budget, tags
+// included. Very long single messages keep their beginning and end.
 export function trimChat(turns, limits = LIMITS) {
   const clean = (Array.isArray(turns) ? turns : [])
     .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string')
@@ -62,23 +88,26 @@ export function trimChat(turns, limits = LIMITS) {
   for (let i = clean.length - 1; i >= 0; i--) {
     const text = shorten(clean[i].text, limits.turnChars);
     if (text !== clean[i].text) shortened = true;
-    if (used + text.length > limits.chatChars) break;
-    used += text.length;
+    if (used + text.length + TURN_OVERHEAD > limits.chatChars) break;
+    used += text.length + TURN_OVERHEAD;
     kept.unshift({ role: clean[i].role, text });
   }
   return { turns: kept, total: clean.length, partial: kept.length < clean.length || shortened };
 }
 
-// Keeps the start of a web page's text within the budget, plus its title and
-// address.
+// Keeps the start of a web page's text, with its title and address, within
+// the budget.
 export function trimPage(page, max = LIMITS.pageChars) {
   if (!page || typeof page.text !== 'string') return null;
   const text = page.text.trim();
   if (!text) return null;
-  const kept = text.length > max ? text.slice(0, max) : text;
+  const title = clipStart(String(page.title || '').replace(/\s+/g, ' ').trim(), 300);
+  const url = clipStart(String(page.url || ''), 2000);
+  const kept = clipStart(text, max - title.length - url.length);
+  if (!kept) return null;
   return {
-    title: String(page.title || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-    url: String(page.url || '').slice(0, 2000),
+    title,
+    url,
     text: kept,
     total: text.length,
     partial: kept.length < text.length,
@@ -87,11 +116,13 @@ export function trimPage(page, max = LIMITS.pageChars) {
 
 // With { screenshot: true }, the message opens by saying an image came with
 // the question (the provider request carries it before this text).
+// Any lone surrogate left in page text becomes U+FFFD, so the request is
+// always valid text.
 export function buildUserMessage(question, chat, page, { screenshot = false } = {}) {
   const text = contextMessage(question, chat, page);
-  if (!screenshot) return text;
+  if (!screenshot) return text.toWellFormed();
   const note = 'The user attached a screenshot of part of their screen.';
-  return text === question ? `${note}\n\nQuestion: ${question}` : `${note}\n\n${text}`;
+  return (text === question ? `${note}\n\nQuestion: ${question}` : `${note}\n\n${text}`).toWellFormed();
 }
 
 function contextMessage(question, chat, page) {
@@ -120,11 +151,18 @@ function contextMessage(question, chat, page) {
 // start is held back until it's clear the line isn't such a speaker label,
 // and the line that starts one, with everything after it, is dropped and
 // stop() is called so generation ends. The first line is never cut.
-// Only labels that name a speaker count: a bare "Question:" or "Response:"
-// is a heading the model uses in real answers.
-const MADE_UP_TURN = /^\s*[[(*#>_]*\s*(user|human|ai assistant|assistant|ai)\b[^:\n]{0,24}:/i;
+// Only a bare speaker label counts, optionally followed by a word such as
+// "Question" or "Response": "User:", "**AI Assistant Response:**", "[User
+// Question: …]". A bare "Question:" is a heading the model uses in real
+// answers, and "User's goal:", "AI safety:" or "User interface:" are
+// ordinary text.
+// With cut: false, the text passes through whole. That's for answers about
+// an attached chat, whose summary names the speakers ("**User:** asked …")
+// just as a made-up turn would.
+const MADE_UP_TURN = /^\s*[[(*#>_\s]*(user|human|ai assistant|assistant|ai)(\s+(question|response|answer|message|reply|query))?\s*[\])*_]*\s*:/i;
 
-export function turnFilter(emit, stop) {
+export function turnFilter(emit, stop, { cut = true } = {}) {
+  if (!cut) return { push: (text) => emit(String(text)), end() {}, stopped: false };
   let held = ''; // start of the current line, not shown yet
   let open = false; // the current line passed the check and streams as is
   let shown = false;
