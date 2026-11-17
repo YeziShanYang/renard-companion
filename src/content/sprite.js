@@ -1,11 +1,16 @@
 // Frame-stepping sprite animator. Draws one 32×32 frame at a time onto a
 // small canvas that CSS scales up with pixelated rendering. Frames advance
 // on timers rather than a constant animation-frame loop, so an idle fox
-// costs almost nothing.
+// costs almost nothing. With reduced motion on, the fox changes pose but
+// doesn't animate.
 (function () {
   const R = (globalThis.Renard = globalThis.Renard || {});
 
   R.FRAME = 32;
+
+  // Its own check, since the toolbar popup and settings load this file
+  // without pixel.js.
+  const reducedMotion = () => Boolean(globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   // Row layout of Elthen's "2D Pixel Art Fox Sprites" sheet: 32×32 frames,
   // 14 columns × 7 rows, fox facing right, feet on the bottom pixel row.
@@ -48,8 +53,23 @@
       this.name = name;
       this.anim = { ...base, loop: loop ?? base.loop, reverse, onEnd, ms: ms || base.ms };
       this.step = 0;
+      if (reducedMotion()) {
+        this.still();
+        return;
+      }
       this.draw();
       this.schedule();
+    }
+
+    // Reduced motion: a loop shows its first frame and stays there; a
+    // one-shot shows its last frame and ends at once.
+    still() {
+      const a = this.anim;
+      this.step = a.loop ? 0 : a.frames - 1;
+      this.draw();
+      const done = a.onEnd;
+      a.onEnd = null;
+      if (!a.loop && done) this.timer = setTimeout(done, 0);
     }
 
     // Shows a single frame and stops (used for held poses).
@@ -65,6 +85,11 @@
     schedule() {
       const a = this.anim;
       this.timer = setTimeout(() => {
+        // Reduced motion turned on mid-animation.
+        if (reducedMotion()) {
+          this.still();
+          return;
+        }
         this.step++;
         if (this.step >= a.frames) {
           if (a.loop) {

@@ -609,7 +609,7 @@
     scheduleLook() {
       clearTimeout(this.timers.look);
       this.timers.look = setTimeout(() => {
-        if (this.mode === 'idle') {
+        if (this.mode === 'idle' && !R.reducedMotion()) {
           this.fox.sprite.play('look', {
             onEnd: () => {
               if (this.mode === 'idle') this.fox.sprite.play('idle');
