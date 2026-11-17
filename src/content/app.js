@@ -186,6 +186,7 @@
         this.fox.cancelMotion();
         this.fox.sprite.stop();
         this.blipper.close();
+        if (R.cancelPick) R.cancelPick();
         try {
           this.cancelAsk();
         } catch {
@@ -689,6 +690,7 @@
 
     async hide() {
       if (this.hidden) return;
+      if (R.cancelPick) R.cancelPick();
       this.hidden = true;
       this.haltWander();
       this.closeBubble(false);
@@ -741,6 +743,12 @@
     // so a shortcut never toggles twice.
     command(cmd, source = 'browser') {
       if (this.leaving || this.orphaned()) return;
+      // Renard's shortcuts cancel a screenshot being chosen; the page can
+      // block the picker's own keys, but not these.
+      if (R.cancelPick) {
+        R.cancelPick();
+        if (cmd === 'toggle-bubble') return;
+      }
       const now = performance.now();
       const last = this.lastCommand;
       if (last && last.cmd === cmd && last.source !== source && now - last.at < 600) return;

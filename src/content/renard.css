@@ -427,6 +427,16 @@
 .region-layer {
   position: fixed;
   inset: 0;
+  /* Undoes the browser's popover box (centered, fit to content, bordered). */
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  color: inherit;
   pointer-events: auto;
   cursor: crosshair;
   background: rgba(0, 0, 0, 0.35);
