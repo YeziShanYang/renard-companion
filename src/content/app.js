@@ -1193,11 +1193,12 @@
       if (!this.freePlaced) this.placeBubble();
       if (chatFailed) {
         this.bubble.setLine(this.line(reading === 'page' ? 'pageUnreadable' : 'chatUnreadable'), { onChar: this.blip });
-        this.bubble.setNote(
+        // Kept as the note about what was read, which later notes add to.
+        this.contextNote =
           reading === 'page'
             ? "Couldn't find any text on this page, so this answer doesn't use it."
-            : "Couldn't read the chat on this page, so this answer doesn't use it.",
-        );
+            : "Couldn't read the chat on this page, so this answer doesn't use it.";
+        this.bubble.setNote(this.contextNote);
         this.react('startled', () => this.think());
       } else {
         this.bubble.setLine(this.line('thinking'), { onChar: this.blip });
