@@ -20,8 +20,8 @@ OpenAI, or Gemini key instead.
 
 With Read chat on (the default), the conversation on the page goes along with
 your question, for requests like "summarize this chat". On other sites the same
-switch is called Read page and sends the page's text. Text a page hides from
-view is left out. If what's sent has text aimed at AI assistants, such as
+switch is called Read page and sends the page's text. Most text a page hides
+from view is left out. If what's sent has text aimed at AI assistants, such as
 "ignore the user's question", the bubble says so, because models (the small
 built-in one especially) can follow it.
 

@@ -90,15 +90,48 @@
   // ("Copy", "Edit", "Thought for 12s"), form controls, media and scripts.
   const NOT_TEXT = new Set(['BUTTON', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'INPUT', 'SELECT', 'TEXTAREA', 'IFRAME', 'CANVAS', 'VIDEO', 'AUDIO', 'IMG', 'svg']);
 
-  // Clipped to nothing: clip: rect() on a positioned box, or clip-path:
-  // inset() of half or more.
+  // Clipped to nothing: clip: rect() on a positioned box, a clip-path
+  // inset() whose sides meet (in percentages), or a circle or ellipse of no
+  // size.
   function clippedAway(cs) {
     if ((cs.position === 'absolute' || cs.position === 'fixed') && cs.clip.startsWith('rect(')) {
       const [top, right, bottom, left] = (cs.clip.match(/-?[\d.]+/g) || []).map(Number);
       if (right - left <= 1 || bottom - top <= 1) return true;
     }
-    const inset = /^inset\(\s*([\d.]+)%/.exec(cs.clipPath || '');
-    return Boolean(inset && Number(inset[1]) >= 50);
+    const path = cs.clipPath || '';
+    const inset = /^inset\(([^)]*?)(?:\s+round\b[^)]*)?\)/.exec(path);
+    if (inset) {
+      const v = inset[1].trim().split(/\s+/);
+      // Percentages, and zero in any unit (the browser writes 0 as 0px).
+      if (v.every((x) => /^[\d.]+%$/.test(x) || /^0+(?:\.0+)?[a-z]*$/.test(x))) {
+        const [t, r = t, b = t, l = r] = v.map(parseFloat);
+        if (t + b >= 100 || l + r >= 100) return true;
+      }
+    }
+    return /^(?:circle|ellipse)\(\s*0(?:px|%)?[\s)]/.test(path);
+  }
+
+  // Shrunk to nothing by a transform or the scale property (scale(0)), or
+  // made see-through by a filter (opacity(0)).
+  function scaledAway(cs) {
+    if (/\bopacity\(\s*0+(?:\.0+)?%?\s*\)/.test(cs.filter || '')) return true;
+    if (cs.scale && cs.scale !== 'none' && cs.scale.split(/\s+/).some((v) => Math.abs(parseFloat(v)) < 1e-3)) return true;
+    const t = cs.transform;
+    if (!t || t === 'none') return false;
+    const n = t.slice(t.indexOf('(') + 1).split(',').map(Number);
+    const det = t.startsWith('matrix3d(') ? n[0] * n[5] - n[1] * n[4] : n[0] * n[3] - n[1] * n[2];
+    return Math.abs(det) < 1e-3;
+  }
+
+  // The page's horizontal scroll range in page coordinates: on a
+  // right-to-left page it reaches left of zero. Read once per read.
+  function scrollRange(memo) {
+    if (!memo.range) {
+      const doc = document.documentElement;
+      const rtl = getComputedStyle(document.body || doc).direction === 'rtl';
+      memo.range = rtl ? [-(doc.scrollWidth - doc.clientWidth), doc.clientWidth] : [0, doc.scrollWidth];
+    }
+    return memo.range;
   }
 
   // Transparent content that a page fades in once it's scrolled to: still
@@ -116,24 +149,65 @@
   // Elements nobody can see, with everything in them. A page can hide text
   // from the user and still have it read to the model (instructions aimed
   // at the model, say), so what isn't shown isn't read.
-  function unread(el, cs) {
-    if (NOT_TEXT.has(el.tagName) || el.hidden || el.getAttribute('aria-hidden') === 'true') return true;
+  //
+  // aria-hidden hides nothing on screen. In a chat it marks icons and a
+  // collapsed thinking block, so chats skip it. A page often puts its
+  // visible text there, with a copy for screen readers in a clipped box
+  // (prices, ratings), so pages read it (page: true).
+  //
+  // at: what the walker knows about the element's ancestors (see
+  // messageText): inside a scroller, anything can be scrolled to, and
+  // outside a box that clips its overflow, nothing shows.
+  function unread(el, cs, page, at, memo) {
+    if (NOT_TEXT.has(el.tagName) || el.hidden) return true;
+    if (!page && el.getAttribute('aria-hidden') === 'true') return true;
     if (cs.display === 'none' || cs.visibility === 'hidden' || cs.visibility === 'collapse' || cs.contentVisibility === 'hidden') return true;
-    if ((parseFloat(cs.opacity) < 0.05 && !fadesInLater(el, cs)) || clippedAway(cs)) return true;
+    if ((parseFloat(cs.opacity) < 0.05 && !fadesInLater(el, cs)) || clippedAway(cs) || scaledAway(cs)) return true;
     // A box of a pixel or less that clips what overflows it:
     // screen-reader-only text ("ChatGPT said:"), or a collapsed block (a
     // closed thinking block).
     if ((parseFloat(cs.width) <= 1 && /hidden|clip/.test(cs.overflowX)) || (parseFloat(cs.height) <= 1 && /hidden|clip/.test(cs.overflowY))) return true;
-    // Positioned where nobody can scroll to it.
+    // Positioned or moved where nobody can scroll to it: off the window
+    // (fixed), out of the scroller it's in, or off the page.
     if (cs.position === 'fixed') {
-      const r = el.getBoundingClientRect();
+      const r = boxOf(el, memo);
       return r.right <= 0 || r.bottom <= 0 || r.left >= innerWidth || r.top >= innerHeight;
     }
-    if (cs.position === 'absolute') {
-      const r = el.getBoundingClientRect();
-      return r.right + scrollX <= 0 || r.bottom + scrollY <= 0 || r.left + scrollX >= document.documentElement.scrollWidth;
+    if (cs.position !== 'static' || cs.transform !== 'none' || (cs.translate && cs.translate !== 'none')) {
+      const r = reach(el, cs, boxOf(el, memo));
+      if (at.scroller) return outside(r, at.scroller);
+      const [minX, maxX] = scrollRange(memo);
+      return r.right + scrollX <= minX || r.bottom + scrollY <= 0 || r.left + scrollX >= maxX;
     }
     return false;
+  }
+
+  // A box together with what overflows it where that shows (overflow:
+  // visible): a carousel track moved left of the page has its visible slide
+  // hanging out of it. Overflow a box clips or scrolls doesn't show outside
+  // it, so it doesn't count. Overflow goes right (left in right-to-left
+  // text) and down.
+  function reach(el, cs, r) {
+    const width = cs.overflowX === 'visible' ? Math.max(r.width, el.scrollWidth) : r.width;
+    const height = cs.overflowY === 'visible' ? Math.max(r.height, el.scrollHeight) : r.height;
+    const left = cs.direction === 'rtl' ? r.right - width : r.left;
+    return { left, right: left + width, top: r.top, bottom: r.top + height, width, height };
+  }
+
+  // A box (rect) with no part inside an area ({ left, right, top, bottom }).
+  // Boxes of no size (display: contents) are never outside.
+  function outside(r, area) {
+    return (r.width > 0 || r.height > 0) && (r.right <= area.left || r.left >= area.right || r.bottom <= area.top || r.top >= area.bottom);
+  }
+
+  // The area a scroller's content can be scrolled into view from: its box,
+  // grown by what it can scroll to. Content overflows to the right (or to
+  // the left in right-to-left text) and down, never the other way.
+  function scrollArea(el, cs, memo) {
+    const r = boxOf(el, memo);
+    const left = cs.direction === 'rtl' ? r.right - el.scrollLeft - el.scrollWidth : r.left - el.scrollLeft;
+    const top = r.top - el.scrollTop;
+    return { left, right: left + el.scrollWidth, top, bottom: top + el.scrollHeight };
   }
 
   const near = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 12;
@@ -158,20 +232,26 @@
   }
 
   // Behind the root: the first ancestor that paints, or the page's own
-  // white canvas (unknown on a dark canvas, whose color varies).
+  // white canvas. A page that allows a dark canvas (in its CSS or a
+  // <meta name="color-scheme">, as Chrome's plain-text view does) gets one
+  // when the system is dark, with light default text, so the canvas is
+  // unknown there.
   function backgroundAbove(el) {
     for (let node = el.parentElement; node; node = node.parentElement) {
       const own = ownBackground(getComputedStyle(node));
       if (own !== undefined) return own;
     }
-    return /\bdark\b/.test(getComputedStyle(document.documentElement).colorScheme || '') ? null : [255, 255, 255, 1];
+    const meta = document.querySelector('meta[name="color-scheme"]');
+    const scheme = `${getComputedStyle(document.documentElement).colorScheme || ''} ${(meta && meta.getAttribute('content')) || ''}`;
+    return /\bdark\b/.test(scheme) ? null : [255, 255, 255, 1];
   }
 
   const MEDIA = 'img, picture, video, canvas, svg, iframe, object, embed';
 
   // Past this many checks in one read, the rest of the text matching its
-  // background counts as shown, so a page full of it can't stall the read.
-  const MAX_UNDER_CHECKS = 300;
+  // background counts as hidden, so a page full of it can't stall the read.
+  // Only elements with text of their own are checked.
+  const MAX_UNDER_CHECKS = 5000;
 
   // What one read has already looked up for paintedUnder: per parent, the
   // things its children paint ([{ node, own }], own as ownBackground gives
@@ -224,7 +304,7 @@
   // video, an overlay box beside the text, or an ancestor's ::before layer.
   // Only boxes overlapping the element count.
   function paintedUnder(el, color, memo) {
-    if (++memo.checks > MAX_UNDER_CHECKS) return true;
+    if (++memo.checks > MAX_UNDER_CHECKS) return false;
     const box = boxOf(el, memo);
     const overlaps = (n) => {
       const r = boxOf(n, memo);
@@ -268,7 +348,7 @@
   // The text is kept in pieces, with the last few characters copied aside
   // for the checks, so each check costs the same however long the text
   // already is.
-  function messageText(root, limit = Infinity) {
+  function messageText(root, limit = Infinity, { page = false } = {}) {
     const parts = [];
     let tail = ''; // the last characters written
     let total = 0;
@@ -307,9 +387,9 @@
     };
     const counts = new Map(); // ordered list -> number of its last item
     const memo = paintMemo();
-    // at: { pre (keep whitespace), depth (list nesting), bg (what's behind),
-    // clip (text painted with a background), quiet (node's own text can't
-    // be read) }
+    // at: { el, cs, pre (keep whitespace), depth (list nesting), bg (what's
+    // behind), clip (text painted with a background), quiet (the element's
+    // own text can't be read; worked out at its first text) }
     const walk = (node, at) => {
       // A closed <details> shows only its summary.
       const closed = node.tagName === 'DETAILS' && !node.open;
@@ -317,6 +397,12 @@
         if (total >= limit) return;
         if (closed && child.tagName !== 'SUMMARY') continue;
         if (child.nodeType === 3) {
+          // Worked out where text is written: the element holding it may
+          // show even when an ancestor's box doesn't (a carousel track
+          // moved left, with its visible slide inside the frame).
+          if (at.quiet === undefined && /\S/.test(child.data)) {
+            at.quiet = (at.box !== null && outside(boxOf(at.el, memo), at.box)) || quietText(at.el, at.cs, at.bg, at.clip, memo);
+          }
           if (at.quiet) continue;
           let t = child.data;
           if (!at.pre) {
@@ -337,7 +423,7 @@
           continue;
         }
         const cs = getComputedStyle(el);
-        if (unread(el, cs)) continue;
+        if (unread(el, cs, page, at, memo)) continue;
         if (el.classList.contains('katex')) {
           const tex = el.querySelector('annotation[encoding="application/x-tex"]');
           if (tex) {
@@ -396,22 +482,40 @@
       }
     };
     const inside = (at, el, cs) => {
-      const next = {
+      // <html> and <body> pass their overflow to the window, which the
+      // off-page check covers. A box scrolls only on an axis that's auto or
+      // scroll and actually overflows: overflow-x: hidden makes overflow-y
+      // compute to auto, and a wrapper like that clips, it doesn't scroll.
+      const own = el !== document.documentElement && el !== document.body;
+      const scrolls =
+        own &&
+        ((/auto|scroll/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) || (/auto|scroll/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1));
+      const clips = own && !scrolls && /hidden|clip|auto|scroll/.test(`${cs.overflowX} ${cs.overflowY}`);
+      return {
+        el,
+        cs,
         pre: at.pre || keepsSpace(cs),
         depth: at.depth + (el.tagName === 'UL' || el.tagName === 'OL' ? 1 : 0),
         bg: behind(cs, at.bg),
         clip: at.clip || clipsText(cs),
+        quiet: undefined,
+        // The innermost scroller's reach, and the innermost clipping box.
+        // What a scroller holds can be scrolled into view, so a clip
+        // outside it no longer decides.
+        scroller: scrolls ? scrollArea(el, cs, memo) : at.scroller,
+        box: scrolls ? null : clips ? boxOf(el, memo) : at.box,
       };
-      next.quiet = quietText(el, cs, next.bg, next.clip, memo);
-      return next;
     };
-    walk(root, inside({ pre: false, depth: 0, bg: backgroundAbove(root), clip: false }, root, getComputedStyle(root)));
+    walk(root, inside({ pre: false, depth: 0, bg: backgroundAbove(root), clip: false, scroller: null, box: null }, root, getComputedStyle(root)));
     return parts.join('');
   }
 
+  // Non-breaking spaces as spaces, and icon-font glyphs (private-use
+  // characters, which now come through aria-hidden icons on pages) left out.
   function tidy(text) {
     return text
       .replace(/ /g, ' ')
+      .replace(/[-]/g, '')
       .replace(/[ \t]+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
@@ -477,8 +581,9 @@
 
     // The text of a message or page, minus interface and hidden text. Stops
     // reading once there are limit characters.
-    messageText(el, limit) {
-      return tidy(messageText(el, limit));
+    // options.page: reading a web page rather than a chat (see unread).
+    messageText(el, limit, options) {
+      return tidy(messageText(el, limit, options));
     },
 
     // Chat turns from message nodes, read newest first until there is more

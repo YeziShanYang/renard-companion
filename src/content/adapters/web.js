@@ -28,7 +28,7 @@
       // Read like a chat message: without buttons, and without text the
       // page hides from the user (which can still carry instructions aimed
       // at the model).
-      const text = root ? U.messageText(root, MAX_CHARS).slice(0, MAX_CHARS) : '';
+      const text = root ? U.messageText(root, MAX_CHARS, { page: true }).slice(0, MAX_CHARS) : '';
       // The URL without its query, fragment or ;parameters (a session id,
       // say), which can carry tokens.
       return { title: document.title.slice(0, 300), url: location.origin + location.pathname.replace(/;[^/]*/g, ''), text };

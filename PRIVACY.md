@@ -15,9 +15,9 @@ When you ask a question, it goes directly from your browser to the provider you
 chose. If Read chat is on, the conversation on the page goes with it. On a
 website you added, the same switch is called Read page. It sends the page's
 visible text, its title, and its address without the query string, fragment,
-or path parameters. Text the page hides from view and button labels are left
-out. Renard trims long conversations to their most recent part and long pages
-to their beginning, and tells you when it does.
+or path parameters. Button labels and most text the page hides from view are
+left out. Renard trims long conversations to their most recent part and long
+pages to their beginning, and tells you when it does.
 
 Read chat starts on. You can turn it off in Renard's bubble, and Renard
 remembers your choice.
