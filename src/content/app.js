@@ -157,6 +157,12 @@
     }
 
     bindEvents() {
+      this.bindKeys();
+      this.bindViewport();
+      this.watchPage();
+    }
+
+    bindKeys() {
       // Keystrokes inside Renard stay inside, so the site's own shortcuts
       // (type-to-focus, hotkeys) don't fire while typing a question.
       for (const type of ['keydown', 'keyup', 'keypress']) {
@@ -187,7 +193,11 @@
       };
       window.addEventListener('keydown', this.onKeyDown, true);
       R.watchKeyboardLayout();
+    }
 
+    // A window resize moves the fox back into its margin and the bubble
+    // beside it; a scroll can move the site's message box.
+    bindViewport() {
       let resizeQueued = false;
       this.onResize = () => {
         if (resizeQueued) return;
@@ -222,7 +232,10 @@
         });
       };
       window.addEventListener('scroll', this.onScroll, { passive: true, capture: true });
+    }
 
+    // Keeps Renard on the page and its theme matching the page's.
+    watchPage() {
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
         if (this.orphaned()) return;
