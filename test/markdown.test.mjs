@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-await import('../src/content/markdown.js');
+await import('../src/bubble/markdown-parse.js');
 const { parse } = globalThis.Renard.markdown;
 
 const text = (s) => ({ type: 'text', text: s });
