@@ -84,6 +84,17 @@
     return { ...mods, code };
   };
 
+  // { command: shortcut string } as parsed shortcuts, leaving out any that
+  // can't be recognized.
+  R.parseShortcuts = function (strings) {
+    const out = {};
+    for (const [cmd, text] of Object.entries(strings || {})) {
+      const parsed = R.parseShortcut(text);
+      if (parsed) out[cmd] = parsed;
+    }
+    return out;
+  };
+
   // The current keyboard layout, code -> character, where the browser
   // reports it (Chrome's Keyboard API, in a top-level page or a frame
   // allowed keyboard-map), or null. Kept on R, so a second copy of this

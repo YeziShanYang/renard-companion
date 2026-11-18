@@ -286,11 +286,7 @@
         }
         case 'prefs':
           this.blips = Boolean(m.sound);
-          this.shortcuts = {};
-          for (const [cmd, text] of Object.entries(m.shortcuts || {})) {
-            const parsed = R.parseShortcut(String(text || ''));
-            if (parsed) this.shortcuts[cmd] = parsed;
-          }
+          this.shortcuts = R.parseShortcuts(m.shortcuts);
           break;
         case 'line':
           this.setLine(String(m.text || ''));
@@ -318,9 +314,6 @@
           break;
         case 'prefill':
           if (!this.input.value) this.setDraft(String(m.text || ''));
-          break;
-        case 'draft':
-          this.setDraft(String(m.text || ''));
           break;
         case 'start':
           this.startAnswer(String(m.question || ''), Boolean(m.screenshot));

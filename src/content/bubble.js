@@ -370,10 +370,6 @@
       this.once({ type: 'prefill', text });
     }
 
-    setDraft(text) {
-      this.once({ type: 'draft', text });
-    }
-
     // screenshot: an image went with the question.
     startAnswer(question, { screenshot = false } = {}) {
       this.answering = true;
@@ -414,14 +410,12 @@
       this.post({ type: 'delta', text: piece });
     }
 
-    // Streaming text goes over as deltas, so a long answer isn't resent on
-    // every update; a reloaded frame gets the whole answer.
-    setAnswer(markdown, { streaming = false } = {}) {
-      const delta = streaming && this.markdown && markdown.startsWith(this.markdown) && markdown.length > this.markdown.length;
-      const full = { type: 'answer', markdown, streaming };
+    // The answer as it ended: finished, stopped or failed.
+    setAnswer(markdown) {
+      const full = { type: 'answer', markdown, streaming: false };
       this.state.delete('answer');
       this.state.set('answer', full);
-      this.post(delta ? { type: 'delta', text: markdown.slice(this.markdown.length) } : full);
+      this.post(full);
       this.markdown = markdown;
     }
 

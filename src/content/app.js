@@ -1,61 +1,19 @@
-// Renard on the page: mounts the Shadow DOM UI and runs the fox's behavior
-// (entrance, idling, napping, dragging, reactions) and the ask flow.
+// Renard on the page: puts the fox and its bubble on the page, keeps them
+// in step with settings and the page, and runs the ask flow. The parts:
+//   stage.js     Renard's element on the page (shadow root, top layer)
+//   fox.js       the fox's sprite, movement and pointer handling
+//   bubble.js    the bubble's outline, and the channel to its frame
+//   behavior.js  what the fox does (methods of this class)
+//   layout.js    where the bubble goes beside the fox
+//   ask.js       sending a question and wording what comes back
 (function () {
   const R = globalThis.Renard;
 
-  const SLEEP_AFTER_MS = 5 * 60 * 1000;
-  const LOOK_MIN_MS = 20000;
-  const LOOK_MAX_MS = 40000;
-  const WANDER_MIN_MS = 12000;
-  const WANDER_MAX_MS = 30000;
-  const WANDER_SPEED = 91; // px/s: an amble, slower than running back after a drag
-  const WANDER_RANGE_Y = 110; // px above or below its home height a stroll may go
-  const RUN_SPEED = 221;
-  const ENTER_SPEED = 286; // the trot in from off-screen
-  const EDGE_GAP = 28; // closest the fox's body ever rests to the screen edge
-  const MAX_INSET = 260; // farthest it wanders from the edge
-  const LEAP = 120; // entrance: the last stretch is a pounce
-  const MARGIN = 12;
-  const BUBBLE_WIDTH = 520; // default width; corners resize it
-  const EXPANDED_WIDTH = 720;
-  const LEGACY_WIDTH = 420; // the earlier default, saved alongside the expand toggle
-  const DEFAULT_POSITION = { edge: 'right', y: 0.7 };
-  const DIZZY_CLICKS = 10;
-  const DIZZY_WINDOW_MS = 3000;
-
-  // How each failure is shown: canned-line category, whether to offer the
-  // settings button, and whether partial text is thrown away.
-  const ERRORS = {
-    keyMissing: { line: 'noKey', settings: true },
-    permission: { line: 'noPermission', settings: true },
-    keyInvalid: { line: 'keyInvalid', settings: true },
-    modelUnavailable: { line: 'modelUnavailable', settings: true },
-    imageUnsupported: { line: 'imageUnsupported', settings: true },
-    rateLimited: { line: 'networkError' },
-    network: { line: 'networkError' },
-    refused: { line: 'refused', discard: true },
-    localMissing: { line: 'localMissing', settings: true },
-    noGpu: { line: 'noGpu', settings: true },
-    unknown: { line: 'networkError' },
-  };
-
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const nextFrame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
   const IMAGES_OFF = "The built-in model can't read images. Pick an API-key provider in settings to attach screenshots.";
   const NO_CAPTURE_ACCESS =
     'Screenshots need Renard to have access to all websites. Allow it under Screenshots in settings, then click the camera again. Pasting or dropping an image works without it.';
-
-  // The fox is mid-move: reactions, clicks and the bubble wait until it lands,
-  // so nothing can strand it walking in place.
-  const MOVING = ['entering', 'walking', 'dragging', 'leaving'];
-
-  // Provider error text shown on the page, minus anything shaped like a key.
-  function scrubError(text) {
-    return String(text)
-      .replace(/\b(sk-[\w*.-]{4,}|AIza[\w-]{8,}|[A-Za-z0-9_-]{32,})/g, '[hidden]')
-      .slice(0, 300);
-  }
 
   function attempt(fn, fallback = null) {
     try {
@@ -74,17 +32,14 @@
       this.lines = new R.LinePicker(assets.lines);
       this.blipper = new R.Blipper();
       this.blip = () => this.blipper.blip();
-      this.mode = 'entering';
-      this.yFrac = DEFAULT_POSITION.y; // current height (fraction of the usable range)
-      this.yHome = DEFAULT_POSITION.y; // remembered height; strolls stay near it
-      this.inset = EDGE_GAP;
-      this.clicks = [];
-      this.port = null;
+      this.initFox();
+      // The question being answered, if any (see R.sendQuestion).
+      this.request = null;
+      // The last question asked: { question, image, answer }.
       this.last = null;
       // The image waiting to go with the next question.
       this.attachment = null;
       this.capturing = false;
-      this.hidden = false;
       this.timers = {};
       this.observers = [];
       this.lastHref = location.href;
@@ -98,18 +53,19 @@
     // ---- setup ------------------------------------------------------------
 
     async mount() {
-      await this.loadFonts();
-      const [sheet, fallback] = await Promise.all([this.bitmap(this.assets.sprite), this.bitmap(this.assets.icon)]);
+      await R.loadFonts(this.assets);
+      const [sheet, fallback] = await Promise.all([R.decodeImage(this.assets.sprite), R.decodeImage(this.assets.icon)]);
 
-      // A plain div, not a custom element: a page that defined
-      // <renard-companion> first could reach the closed shadow root through
-      // attachInternals().
-      this.host = document.createElement('div');
-      this.host.setAttribute(R.HOST_ATTR, '');
-      this.shadow = this.host.attachShadow({ mode: 'closed' });
-      this.root = R.h('div', { class: 'renard-root', 'data-theme': 'light' });
-      this.shadow.append(this.root);
-      this.applyStyles();
+      this.stage = new R.Stage({
+        css: this.assets.css,
+        onReplaced: () => {
+          if (R.remount) R.remount();
+          else this.unmount();
+        },
+        onOrphaned: () => this.unmount(),
+      });
+      this.shadow = this.stage.shadow;
+      this.root = this.stage.root;
 
       this.fox = new R.Fox({
         sheet,
@@ -127,7 +83,7 @@
         // Enter or the Ask/Stop button: stop an answer that is still coming,
         // otherwise ask.
         onSubmit: (q) => {
-          if (!this.port) this.ask(q);
+          if (!this.request) this.ask(q);
           else if (performance.now() - this.askedAt > 400) this.stop();
         },
         onStop: () => this.stop(),
@@ -161,19 +117,7 @@
         },
       });
       this.fox.button.addEventListener('focus', () => this.bubble.prepare());
-      this.root.append(this.bubble.el, this.fox.el);
-      // Clear any fox an older copy of the extension left on the page.
-      for (const stray of document.querySelectorAll(R.HOST_SELECTOR)) if (stray !== this.host) stray.remove();
-      // The page's root element at mount: when the page swaps it (a
-      // document.open() rewrite, or a new <html>), Renard mounts afresh.
-      this.page = document.documentElement;
-      document.documentElement.append(this.host);
-      // The element shows only while content/host.css is on the page. If a
-      // page got the script without the sheet, Renard shows anyway, but
-      // there it won't disappear when the extension is removed.
-      if (getComputedStyle(this.host).display === 'none') this.host.style.setProperty('--renard-companion-display', 'block');
-      this.raise();
-      this.fitZoom();
+      this.stage.show([this.bubble.el, this.fox.el]);
 
       if (this.adapter.kind === 'page') this.bubble.setReadLabel('Read page', "Include this page's text with your question");
       this.bindEvents();
@@ -197,7 +141,6 @@
         window.removeEventListener('scroll', this.onScroll, { capture: true });
         window.removeEventListener('keydown', this.onKeyDown, true);
         this.colorScheme.removeEventListener('change', this.onSchemeChange);
-        if (this.raiseAfterFullscreen) document.removeEventListener('fullscreenchange', this.raiseAfterFullscreen);
         this.fox.cancelMotion();
         this.fox.sprite.stop();
         this.blipper.close();
@@ -205,109 +148,11 @@
         try {
           this.cancelAsk();
         } catch {
-          this.port = null;
+          this.request = null;
         }
         this.bubble.destroy();
       } finally {
-        this.host.remove();
-      }
-    }
-
-    // Shows Renard's root in the browser's top layer, where CSS on the
-    // page's <html> (a transform, filter, contain or will-change) can't make
-    // it scroll away with the page. Removing or moving the element closes
-    // the popover, and a closed popover isn't shown at all, so it's shown
-    // again as soon as it closes while the element is on the page, and
-    // whenever the element is put back. Without popover support the root
-    // stays at the host's z-index.
-    raise() {
-      const root = this.root;
-      if (typeof root.showPopover !== 'function' || !this.host.isConnected || this.unmounted) return;
-      if (!this.onPopoverToggle) {
-        this.onPopoverToggle = (e) => {
-          if (e.newState === 'closed') this.raise();
-        };
-        root.addEventListener('toggle', this.onPopoverToggle);
-      }
-      // Shown now, it would go above a video that's full screen.
-      if (document.fullscreenElement) {
-        if (!this.raiseAfterFullscreen) {
-          this.raiseAfterFullscreen = () => {
-            if (document.fullscreenElement) return;
-            document.removeEventListener('fullscreenchange', this.raiseAfterFullscreen);
-            this.raiseAfterFullscreen = null;
-            this.raise();
-          };
-          document.addEventListener('fullscreenchange', this.raiseAfterFullscreen);
-        }
-        return;
-      }
-      try {
-        if (!root.hasAttribute('popover')) root.setAttribute('popover', 'manual');
-        if (!root.matches(':popover-open')) root.showPopover();
-      } catch {
-        root.removeAttribute('popover');
-      }
-    }
-
-    // The popover was closed without a toggle event reaching Renard.
-    lowered() {
-      return this.root.hasAttribute('popover') && !this.root.matches(':popover-open');
-    }
-
-    // CSS zoom on the page's <html> would scale Renard too, and put the fox
-    // off by the same factor from where its pixel positions say. The root
-    // undoes it.
-    fitZoom() {
-      const zoom = Number(this.host.currentCSSZoom) || 1;
-      const want = Math.abs(zoom - 1) < 0.001 ? '' : String(1 / zoom);
-      if (this.root.style.zoom !== want) this.root.style.zoom = want;
-    }
-
-    // A constructed stylesheet is immune to the page's Content Security
-    // Policy (some sites forbid inline styles). Where adopting one fails, a
-    // <style> element is the fallback.
-    applyStyles() {
-      try {
-        const sheet = new CSSStyleSheet();
-        sheet.replaceSync(this.assets.css);
-        this.shadow.adoptedStyleSheets = [sheet];
-        if (this.shadow.adoptedStyleSheets.length === 1) return;
-      } catch {
-        // fall through
-      }
-      const style = document.createElement('style');
-      style.textContent = this.assets.css;
-      this.shadow.prepend(style);
-    }
-
-    async loadFonts() {
-      if (R.fontsLoaded) return;
-      R.fontsLoaded = true;
-      // Fonts load from bytes, so the page's font-src policy is never involved.
-      const faces = [
-        ['400', this.assets.fontRegular],
-        ['700', this.assets.fontBold],
-      ];
-      await Promise.all(
-        faces.map(async ([weight, b64]) => {
-          try {
-            const face = new FontFace('Renard Pixel', R.decodeBase64(b64).buffer, { weight, style: 'normal' });
-            await face.load();
-            document.fonts.add(face);
-          } catch {
-            // The CSS falls back to a monospace stack.
-          }
-        }),
-      );
-    }
-
-    async bitmap(b64) {
-      if (!b64) return null;
-      try {
-        return await createImageBitmap(new Blob([R.decodeBase64(b64)], { type: 'image/png' }));
-      } catch {
-        return null;
+        this.stage.destroy();
       }
     }
 
@@ -357,7 +202,7 @@
             return;
           }
           // A media query can change the page's zoom.
-          this.fitZoom();
+          this.stage.fitZoom();
           const { min, max } = this.marginRange(this.fox.edge);
           this.inset = Math.min(max, Math.max(min, this.inset));
           this.fox.reflow(this.yFrac, this.inset);
@@ -381,12 +226,10 @@
       // Both sites are single-page apps that change the URL without a reload.
       this.timers.url = setInterval(() => {
         if (this.orphaned()) return;
-        if (this.pageReplaced()) return;
-        if (!this.host.isConnected) this.restoreHost();
-        else if (this.lowered()) this.raise();
+        if (!this.stage.keep()) return;
         // A stylesheet the page adds later can zoom <html> without any
         // change the observers see.
-        this.fitZoom();
+        this.stage.fitZoom();
         if (location.href === this.lastHref) return;
         this.lastHref = location.href;
         this.updateTheme();
@@ -403,7 +246,7 @@
         const delay = Math.max(0, Math.min(100, themeWaitStart + 500 - now));
         this.timers.theme = setTimeout(() => {
           themeWaitStart = 0;
-          this.fitZoom();
+          this.stage.fitZoom();
           this.updateTheme();
         }, delay);
       });
@@ -416,52 +259,9 @@
       this.colorScheme = matchMedia('(prefers-color-scheme: dark)');
       this.onSchemeChange = () => this.updateTheme();
       this.colorScheme.addEventListener('change', this.onSchemeChange);
-
-      // Put Renard back if the page replaces the root element's children,
-      // and show it again if the page moved it.
-      const hostObserver = new MutationObserver(() => {
-        if (this.pageReplaced()) return;
-        if (!this.host.isConnected) this.restoreHost();
-        else if (this.lowered()) this.raise();
-      });
-      hostObserver.observe(document.documentElement, { childList: true });
-      this.observers.push(hostObserver);
     }
 
-    // The page rewrote itself (document.open(), which also drops every event
-    // listener on the page, Renard's included) or replaced its <html> (out
-    // of the observers' reach). Putting the same element back would leave a
-    // fox that can't be clicked, so main.js mounts a new one.
-    pageReplaced() {
-      const html = document.documentElement;
-      if (!html || html === this.page) return false;
-      if (R.remount) R.remount();
-      else this.unmount();
-      return true;
-    }
-
-    // Puts Renard back on the page after the page removed it, at most five
-    // times in ten seconds and never in the same task: a page that strips
-    // every unknown element from <html> would otherwise remove and re-add it
-    // forever and freeze the tab.
-    restoreHost() {
-      if (!R.contextAlive()) {
-        this.unmount();
-        return;
-      }
-      if (this.timers.restore) return;
-      const now = performance.now();
-      this.restores = (this.restores || []).filter((t) => now - t < 10000);
-      if (this.restores.length >= 5) return;
-      this.restores.push(now);
-      this.timers.restore = setTimeout(() => {
-        this.timers.restore = 0;
-        // Mid-rewrite, the page can have no root element for a moment.
-        if (this.unmounted || this.host.isConnected || !document.documentElement) return;
-        document.documentElement.append(this.host);
-        this.raise();
-      }, 50);
-    }
+    // ---- settings and page state ----------------------------------------------
 
     updateTheme() {
       const theme = attempt(() => this.adapter.theme(), 'light');
@@ -491,17 +291,13 @@
       if (this.attachment && !this.imagesEnabled()) this.setAttachment(null);
       // A bubble placed or being resized by hand keeps its size.
       if (!this.freePlaced && !this.bubble.el.dataset.resizing) this.bubbleSize = { ...state.bubble, expanded: this.bubbleSize.expanded };
-      this.shortcuts = {};
-      for (const [cmd, text] of Object.entries(state.shortcuts || {})) {
-        const parsed = R.parseShortcut(text);
-        if (parsed) this.shortcuts[cmd] = parsed;
-      }
+      this.shortcuts = R.parseShortcuts(state.shortcuts);
       const blocked = this.blocker();
       // Renard can't answer (no key, no download, no access to the API): the
       // bubble shows only what to set up, with no input. The conversation so
       // far is dropped rather than left under a sleeping fox, and a usable
       // model later starts from an empty bubble.
-      if (blocked && (this.last || this.port || this.bubble.hasAnswer())) this.dropConversation();
+      if (blocked && (this.last || this.request || this.bubble.hasAnswer())) this.dropConversation();
       if (this.bubble.isOpen) {
         this.bubble.setBlocked(blocked && blocked.detail);
         // Said when the bubble is open as what's needed changes.
@@ -530,6 +326,8 @@
       if (['thinking', 'reacting'].includes(this.mode)) this.rest();
     }
 
+    // What keeps Renard from answering, if anything: the line to say and
+    // the setup notice to show.
     blocker() {
       const s = this.state;
       if (!s.hasKey && s.provider === 'local') {
@@ -556,278 +354,6 @@
       if (R.contextAlive()) return false;
       this.unmount();
       return true;
-    }
-
-    // ---- behavior ---------------------------------------------------------
-
-    setMode(mode) {
-      this.mode = mode;
-      this.fox.el.dataset.mode = mode;
-    }
-
-    // returning: the fox was already out on this site in this tab, on the
-    // page before this one. It stays where it was rather than running in and
-    // greeting again.
-    async enter({ returning = false } = {}) {
-      const pos = this.state.position || DEFAULT_POSITION;
-      const f = this.fox;
-      this.yFrac = pos.y;
-      this.yHome = pos.y;
-      // Arriving back, it takes the same spot on every page of the site.
-      const { min, max } = this.marginRange(pos.edge);
-      this.inset = returning ? Math.round((min + max) / 2) : this.randomInset(pos.edge);
-      f.setEdge(pos.edge);
-      f.y = f.yFromFrac(pos.y);
-      f.x = returning ? f.xFor(pos.edge, this.inset) : f.offscreenX(pos.edge);
-      f.faceIntoPage();
-      f.apply();
-      if (returning) {
-        this.rest();
-        return;
-      }
-      this.setMode('entering');
-      // Trot in from off-screen, then pounce the last stretch into place.
-      const target = f.xFor(pos.edge, this.inset);
-      const dir = Math.sign(target - f.x);
-      if (Math.abs(target - f.x) > LEAP + 24) {
-        const path = R.meander({ x: f.x, y: f.y }, { x: target - dir * LEAP, y: f.y }, { wiggle: 28, hops: false, bounds: this.roamBounds() });
-        if (!(await f.followPath(path, ENTER_SPEED)) || this.mode !== 'entering') return;
-      }
-      f.faceIntoPage();
-      f.sprite.play('pounce');
-      if (!(await f.tweenTo(target, R.ANIMS.pounce.frames * R.ANIMS.pounce.ms)) || this.mode !== 'entering') return;
-      const blocked = this.blocker();
-      if (blocked) {
-        this.sleepBlocked();
-        f.say(this.line(blocked.line), { onChar: this.blip, duration: 5000 });
-      } else {
-        this.idle();
-        f.say(this.line('greeting'), { onChar: this.blip });
-      }
-    }
-
-    idle() {
-      this.setMode('idle');
-      this.fox.sprite.play('idle');
-      this.scheduleLook();
-      this.scheduleSleep();
-      this.scheduleWander();
-    }
-
-    // ---- margins and wandering ------------------------------------------
-
-    // Range of insets (gap from the screen edge to the fox's body) that keep
-    // the fox in the margin beside the site's content column, away from both
-    // the screen edge and the column. The column is measured from the site's
-    // message input; without one, a fraction of the window is used.
-    marginRange(edge) {
-      const vw = innerWidth;
-      const comp = attempt(() => this.adapter.composerRect());
-      let room = Math.min(MAX_INSET + 100, vw * 0.2);
-      if (comp && comp.width < vw * 0.9) room = edge === 'left' ? comp.left : vw - comp.right;
-      const max = Math.min(MAX_INSET, room - R.Fox.bodyWidth - 16);
-      return { min: EDGE_GAP, max: Math.max(EDGE_GAP, max) };
-    }
-
-    // A random resting spot in the margin, preferably a little away from `avoid`.
-    randomInset(edge, avoid) {
-      const { min, max } = this.marginRange(edge);
-      const span = max - min;
-      if (span < 8) return min;
-      let pick = min + Math.random() * span;
-      for (let i = 0; i < 6 && avoid != null && Math.abs(pick - avoid) < Math.min(48, span / 2); i++) {
-        pick = min + Math.random() * span;
-      }
-      return Math.round(pick);
-    }
-
-    // Where the fox may roam: fully on screen, anywhere vertically.
-    roamBounds() {
-      const f = this.fox;
-      const { min, max } = f.yBounds();
-      return { minX: f.xFor('left', EDGE_GAP / 2), maxX: f.xFor('right', EDGE_GAP / 2), minY: min, maxY: max };
-    }
-
-    scheduleWander() {
-      clearTimeout(this.timers.wander);
-      this.timers.wander = setTimeout(() => this.wander(), WANDER_MIN_MS + Math.random() * (WANDER_MAX_MS - WANDER_MIN_MS));
-    }
-
-    // Ambles to another spot in the same margin. Not an interaction, so the
-    // nap timer keeps running.
-    async wander() {
-      if (this.mode !== 'idle' || this.bubble.isOpen || this.hidden || R.reducedMotion()) {
-        this.scheduleWander();
-        return;
-      }
-      const f = this.fox;
-      const next = this.randomInset(f.edge, this.inset);
-      const home = f.yFromFrac(this.yHome);
-      const target = { x: f.xFor(f.edge, next), y: Math.round(f.clampY(home + (Math.random() * 2 - 1) * WANDER_RANGE_Y)) };
-      if (Math.hypot(target.x - f.x, target.y - f.y) < 16) {
-        this.scheduleWander();
-        return;
-      }
-      this.setMode('wandering');
-      const path = R.meander({ x: f.x, y: f.y }, target, { wiggle: 40, bounds: this.roamBounds() });
-      const arrived = await f.followPath(path, WANDER_SPEED);
-      if (!arrived || this.mode !== 'wandering') return;
-      this.inset = next;
-      this.yFrac = f.fracFromY(f.y);
-      f.faceIntoPage();
-      this.setMode('idle');
-      f.sprite.play('idle');
-      this.scheduleWander();
-    }
-
-    // Stops a wander in place (before opening the bubble, hiding, etc.).
-    haltWander() {
-      if (this.mode !== 'wandering') return;
-      this.fox.cancelMotion();
-      this.inset = this.fox.insetOf(this.fox.edge);
-      this.yFrac = this.fox.fracFromY(this.fox.y);
-      this.fox.faceIntoPage();
-      this.setMode('idle');
-      this.fox.sprite.play('idle');
-    }
-
-    // Back to the resting pose: idle, or asleep while setup is incomplete.
-    rest() {
-      if (this.hidden) return;
-      if (this.blocker()) this.sleepBlocked();
-      else this.idle();
-    }
-
-    scheduleLook() {
-      clearTimeout(this.timers.look);
-      this.timers.look = setTimeout(() => {
-        if (this.mode === 'idle' && !R.reducedMotion()) {
-          this.fox.sprite.play('look', {
-            onEnd: () => {
-              if (this.mode === 'idle') this.fox.sprite.play('idle');
-            },
-          });
-        }
-        this.scheduleLook();
-      }, LOOK_MIN_MS + Math.random() * (LOOK_MAX_MS - LOOK_MIN_MS));
-    }
-
-    scheduleSleep() {
-      clearTimeout(this.timers.sleep);
-      this.timers.sleep = setTimeout(() => {
-        if (this.mode === 'idle' && !this.bubble.isOpen) this.fallAsleep();
-        else this.scheduleSleep();
-      }, SLEEP_AFTER_MS);
-    }
-
-    // Any interaction postpones the nap.
-    touch() {
-      if (this.mode === 'idle') this.scheduleSleep();
-    }
-
-    fallAsleep() {
-      this.setMode('sleeping');
-      this.fox.sprite.play('sleep');
-      this.fox.say(this.line('sleep'), { duration: 4000 });
-    }
-
-    sleepBlocked() {
-      this.setMode('blocked');
-      this.fox.sprite.play('sleep');
-    }
-
-    wake() {
-      this.setMode('waking');
-      return new Promise((resolve) => this.fox.sprite.play('sleep', { reverse: true, onEnd: resolve }));
-    }
-
-    think() {
-      if (this.hidden || MOVING.includes(this.mode)) return;
-      this.setMode('thinking');
-      this.fox.sprite.play('look', { loop: true });
-    }
-
-    // One-shot reaction animation, then `then` (or back to rest).
-    react(anim, then) {
-      if (this.hidden || MOVING.includes(this.mode)) return;
-      this.setMode('reacting');
-      this.fox.sprite.play(anim, {
-        onEnd: () => {
-          if (this.mode !== 'reacting') return;
-          if (then) then();
-          else this.rest();
-        },
-      });
-    }
-
-    dizzy() {
-      this.haltWander();
-      this.closeBubble(false);
-      this.setMode('dizzy');
-      this.fox.say(this.line('dizzy'), { onChar: this.blip });
-      this.fox.sprite.play('fall', {
-        onEnd: () => {
-          this.timers.dizzy = setTimeout(() => {
-            if (this.mode !== 'dizzy') return;
-            this.fox.sprite.play('fall', {
-              reverse: true,
-              onEnd: () => {
-                if (this.mode === 'dizzy') this.rest();
-              },
-            });
-          }, 1400);
-        },
-      });
-    }
-
-    async hide() {
-      if (this.hidden) return;
-      if (R.cancelPick) R.cancelPick();
-      this.hidden = true;
-      this.haltWander();
-      this.closeBubble(false);
-      clearTimeout(this.timers.look);
-      clearTimeout(this.timers.sleep);
-      clearTimeout(this.timers.wander);
-      if (MOVING.includes(this.mode)) this.fox.cancelMotion();
-      this.setMode('hidden');
-      this.fox.say(this.line('hidden'), { onChar: this.blip });
-      // A later animation can cancel this one's onEnd, so don't wait forever.
-      await Promise.race([new Promise((resolve) => this.fox.sprite.play('sleep', { onEnd: resolve })), wait(1500)]);
-      await wait(500);
-      if (!this.hidden) return;
-      this.fox.hush();
-      await this.fox.tweenTo(this.fox.offscreenX(this.fox.edge), 230);
-      if (this.hidden) this.root.dataset.hidden = 'true';
-    }
-
-    async show() {
-      if (!this.hidden) return;
-      this.hidden = false;
-      delete this.root.dataset.hidden;
-      await this.enter();
-    }
-
-    // Unspawned from the toolbar, or the site was turned off: say goodbye,
-    // run off the near edge, and remove everything. A background tab can't
-    // animate, and the run is capped, so this always finishes.
-    async leave() {
-      if (this.unmounted || this.leaving) return;
-      this.leaving = true;
-      const f = this.fox;
-      const animate = !this.hidden && !document.hidden && !R.reducedMotion();
-      this.haltWander();
-      this.closeBubble(false);
-      this.cancelAsk();
-      for (const t of ['look', 'sleep', 'wander']) clearTimeout(this.timers[t]);
-      this.setMode('leaving');
-      if (animate) {
-        f.say(this.line('hidden'), { onChar: this.blip });
-        await wait(700);
-        const run = f.followPath([{ x: f.offscreenX(f.edge), y: f.y }], RUN_SPEED * 1.4);
-        await Promise.race([run, wait(2500)]);
-      }
-      this.unmount();
     }
 
     // source: 'browser' (extension command) or 'page' (key seen in the page).
@@ -857,69 +383,13 @@
         });
       } else if (this.bubble.isOpen) {
         this.closeBubble(true);
-      } else if (MOVING.includes(this.mode)) {
+      } else if (this.moving()) {
         return;
       } else if (this.mode === 'sleeping') {
         this.wakeAndOpen();
       } else if (this.mode !== 'dizzy') {
         this.openBubble();
       }
-    }
-
-    // ---- pointer ----------------------------------------------------------
-
-    activate() {
-      if (this.orphaned() || this.hidden || MOVING.includes(this.mode)) return;
-      const now = performance.now();
-      this.clicks = this.clicks.filter((t) => now - t < DIZZY_WINDOW_MS);
-      this.clicks.push(now);
-      if (this.clicks.length >= DIZZY_CLICKS && this.mode !== 'dizzy') {
-        this.clicks = [];
-        this.dizzy();
-        return;
-      }
-      this.haltWander();
-      if (this.mode === 'dizzy') return;
-      if (this.bubble.isOpen) {
-        this.closeBubble(false);
-        return;
-      }
-      this.touch();
-      if (this.mode === 'sleeping') this.wakeAndOpen();
-      else this.openBubble();
-    }
-
-    wakeAndOpen() {
-      this.wake().then(() => {
-        if (this.mode === 'waking') this.rest();
-      });
-      this.openBubble(this.line('wake'));
-    }
-
-    dragStart() {
-      this.closeBubble(false);
-      this.setMode('dragging');
-      this.fox.sprite.play('startled', { loop: true });
-      this.fox.say(this.line('dragged'), { duration: 1400, onChar: this.blip });
-    }
-
-    async dragEnd() {
-      const f = this.fox;
-      const edge = f.nearestEdge();
-      const inset = this.randomInset(edge);
-      // Run back into the margin on a wobbly path, ending near the drop height.
-      const target = { x: f.xFor(edge, inset), y: Math.round(f.clampY(f.y + (Math.random() * 2 - 1) * 40)) };
-      f.setEdge(edge);
-      this.setMode('walking');
-      const path = R.meander({ x: f.x, y: f.y }, target, { wiggle: 56, bounds: this.roamBounds() });
-      const arrived = await f.followPath(path, RUN_SPEED);
-      if (!arrived || this.mode !== 'walking') return;
-      this.inset = inset;
-      this.yFrac = f.fracFromY(f.y);
-      this.yHome = this.yFrac;
-      f.faceIntoPage();
-      R.send('renard:savePosition', { site: this.site.id, position: { edge, y: this.yHome } }).catch(() => {});
-      this.rest();
     }
 
     // ---- bubble -----------------------------------------------------------
@@ -949,92 +419,19 @@
       this.touch();
     }
 
+    // The bubble beside the fox, sized for what it shows (see layout.js).
     placeBubble() {
-      const r = this.fox.rect();
-      const vw = innerWidth;
-      const vh = innerHeight;
-      const side = this.fox.edge === 'right' ? 'left' : 'right';
-      const overlap = 6;
-      const room = side === 'left' ? r.left + overlap - MARGIN : vw - r.right + overlap - MARGIN;
-      const maxW = Math.max(240, Math.min(vw * 0.9, room, vw - 2 * MARGIN));
-      const expanded = Boolean(this.bubbleSize.expanded);
-      const saved = this.bubbleSize.width && this.bubbleSize.width !== LEGACY_WIDTH ? this.bubbleSize.width : BUBBLE_WIDTH;
-      const wanted = expanded ? EXPANDED_WIDTH : saved;
-      const width = Math.min(Math.max(wanted, Math.min(360, maxW)), maxW);
-      let left = side === 'left' ? r.left + overlap - width : r.right - overlap;
-      left = Math.min(Math.max(left, MARGIN), Math.max(MARGIN, vw - MARGIN - width));
-      this.markCrowded(left, width, r, overlap);
-
-      // Before a question the bubble fits its content (the line and the
-      // input): the reading view's height and a dragged-out height wait for
-      // an answer.
-      const answering = this.bubble.hasAnswer();
-      const fill = expanded && answering;
-      // The height the bubble needs to show everything without clipping.
-      const need = Math.min(Math.max(this.bubble.minHeight, 200), vh - 2 * MARGIN);
-      // The bubble keeps clear of the site's message box when there is room
-      // for it on the fox's side of the box, ending at most a little above
-      // the fox. A box farther up, level with the fox, is covered instead:
-      // moving away from the fox to avoid it would leave the tail pointing
-      // at nothing.
-      let floor = vh - MARGIN;
-      let ceiling = MARGIN;
-      const comp = attempt(() => this.adapter.composerRect());
-      if (comp && comp.left < left + width && comp.right > left) {
-        if (comp.top - MARGIN >= r.top - 48) floor = comp.top - MARGIN;
-        else if (comp.bottom + MARGIN <= r.bottom) ceiling = comp.bottom + MARGIN;
-      }
-      const headY = r.top + r.height * 0.3;
-      const common = { side, left, width, expanded: fill, pressed: expanded };
-
-      if (r.top + r.height / 2 < vh * 0.45) {
-        // Fox in the upper part of the screen: hang the bubble from beside it
-        // and let it grow downward.
-        const top = Math.max(MARGIN, r.top - 24);
-        const bottom = floor - top >= need ? floor : vh - MARGIN;
-        const maxHeight = Math.max(bottom - top, Math.min(need, vh - MARGIN - top));
-        this.bubble.place({
-          ...common,
-          anchor: 'top',
-          offset: top,
-          height: this.sizedHeight(answering && !fill, maxHeight),
-          maxHeight,
-          tailOffset: headY - top - 4,
-          expandedHeight: Math.min(vh * 0.8, maxHeight),
-        });
-        return;
-      }
-      // Otherwise grow upward from a fixed bottom edge beside the fox, so the
-      // input stays put while an answer streams in.
-      let bottomY = Math.min(floor, Math.max(r.bottom + 12, MARGIN + 300));
-      if (bottomY - MARGIN < need) bottomY = Math.min(vh - MARGIN, Math.max(r.bottom + 12, MARGIN + 300));
-      const top = bottomY - ceiling >= need ? ceiling : MARGIN;
-      const maxHeight = Math.max(160, bottomY - top);
-      this.bubble.place({
-        ...common,
-        anchor: 'bottom',
-        offset: vh - bottomY,
-        height: this.sizedHeight(answering && !fill, maxHeight),
-        maxHeight,
-        tailOffset: bottomY - headY - 8,
-        expandedHeight: Math.min(vh * 0.8, maxHeight),
+      const { crowded, place } = R.layout.placement({
+        fox: this.fox.rect(),
+        edge: this.fox.edge,
+        viewport: { width: innerWidth, height: innerHeight },
+        size: this.bubbleSize,
+        answering: this.bubble.hasAnswer(),
+        minHeight: this.bubble.minHeight,
+        composer: attempt(() => this.adapter.composerRect()),
       });
-    }
-
-    // In a window too narrow for the bubble beside the fox, the bubble
-    // covers part of the fox. It's drawn above the fox then, so its buttons
-    // stay clickable.
-    markCrowded(left, width, r = this.fox.rect(), overlap = 6) {
-      const side = this.fox.edge === 'right' ? 'left' : 'right';
-      const crowded = side === 'left' ? left + width > r.left + overlap + 1 : left < r.right - overlap - 1;
       this.bubble.el.dataset.crowded = crowded ? 'true' : 'false';
-    }
-
-    // A height the user dragged out, while there is an answer to show: never
-    // less than the content needs, never more than the room there is.
-    sizedHeight(applies, maxHeight) {
-      if (!applies || !this.bubbleSize.height) return 0;
-      return Math.min(Math.max(this.bubbleSize.height, this.bubble.minHeight), maxHeight);
+      this.bubble.place(place);
     }
 
     // The larger reading view. Leaving it goes back to the size the bubble
@@ -1047,43 +444,22 @@
       this.saveBubble();
     }
 
-    // Corner drag: the dragged corner follows the pointer and the opposite
-    // corner stays put. The bubble keeps that spot until it next closes; the
-    // size is remembered. It never gets shorter than its content needs, and
-    // before a question it fits its content, so dragging sets the width only.
+    // Corner drag. The bubble keeps the spot it's dragged to until it next
+    // closes; the size is remembered. Before a question it fits its content,
+    // so dragging sets the width only and it stays beside the fox.
     resizeBubble({ corner, rect, dx, dy }) {
-      const vw = innerWidth;
-      const vh = innerHeight;
-      const minW = Math.min(300, vw - 2 * MARGIN);
-      const minH = Math.min(Math.max(120, this.bubble.minHeight), vh - 2 * MARGIN);
-      let { left, top, right, bottom } = rect;
-      if (corner.includes('w')) left = Math.min(Math.max(rect.left + dx, MARGIN), right - minW);
-      if (corner.includes('e')) right = Math.max(Math.min(rect.right + dx, vw - MARGIN), left + minW);
-      if (corner.includes('n')) top = Math.min(Math.max(rect.top + dy, MARGIN), bottom - minH);
-      if (corner.includes('s')) bottom = Math.max(Math.min(rect.bottom + dy, vh - MARGIN), top + minH);
-      const width = right - left;
-      const height = bottom - top;
+      const viewport = { width: innerWidth, height: innerHeight };
+      const box = R.layout.resized({ corner, rect, dx, dy, viewport, minHeight: this.bubble.minHeight });
       if (!this.bubble.hasAnswer()) {
-        this.bubbleSize = { ...this.bubbleSize, width: Math.round(width), expanded: false };
+        this.bubbleSize = { ...this.bubbleSize, width: Math.round(box.width), expanded: false };
         this.placeBubble();
         return;
       }
-      this.bubbleSize = { width: Math.round(width), height: Math.round(height), expanded: false };
+      this.bubbleSize = { width: Math.round(box.width), height: Math.round(box.height), expanded: false };
       this.freePlaced = true;
-      const r = this.fox.rect();
-      this.markCrowded(left, width, r);
-      this.bubble.place({
-        side: this.fox.edge === 'right' ? 'left' : 'right',
-        anchor: 'top',
-        offset: top,
-        left,
-        width,
-        height,
-        maxHeight: Math.max(height, vh - MARGIN - top),
-        tailOffset: r.top + r.height * 0.3 - top - 4,
-        expanded: false,
-        expandedHeight: 0,
-      });
+      const { crowded, place } = R.layout.freePlacement({ box, fox: this.fox.rect(), edge: this.fox.edge, viewport });
+      this.bubble.el.dataset.crowded = crowded ? 'true' : 'false';
+      this.bubble.place(place);
     }
 
     saveBubble() {
@@ -1136,7 +512,7 @@
         this.setAttachment(image);
         this.bubble.setNotice(null);
       } catch (err) {
-        this.bubble.setNotice({ text: `Couldn't take the screenshot. ${scrubError((err && err.message) || err)}` });
+        this.bubble.setNotice({ text: `Couldn't take the screenshot. ${R.answers.scrubError((err && err.message) || err)}` });
       } finally {
         delete this.root.dataset.capturing;
         this.capturing = false;
@@ -1162,24 +538,10 @@
       clearTimeout(this.timers.sleep);
       this.askedAt = performance.now();
 
-      let chat = null;
-      let page = null;
-      let chatFailed = false;
-      if (this.bubble.readChat.checked) {
-        try {
-          if (this.adapter.kind === 'page') {
-            page = this.adapter.readPage();
-            if (!page.text) throw new Error('No text on this page');
-          } else {
-            const turns = R.adapterUtils.capTurns(this.adapter.readChat());
-            if (turns.length) chat = { siteName: this.site.name, turns };
-          }
-        } catch {
-          chatFailed = true;
-          page = null;
-        }
-      }
       const reading = this.adapter.kind === 'page' ? 'page' : 'chat';
+      const { chat, page, failed: unread } = this.bubble.readChat.checked
+        ? R.readContext(this.adapter, this.site.name)
+        : { chat: null, page: null, failed: false };
 
       // The image goes with this question only. failed() puts it back if no
       // answer arrives, so asking again sends it again.
@@ -1191,13 +553,10 @@
       // The answer area just appeared; apply the remembered size unless the
       // user has placed the bubble by hand.
       if (!this.freePlaced) this.placeBubble();
-      if (chatFailed) {
+      if (unread) {
         this.bubble.setLine(this.line(reading === 'page' ? 'pageUnreadable' : 'chatUnreadable'), { onChar: this.blip });
         // Kept as the note about what was read, which later notes add to.
-        this.contextNote =
-          reading === 'page'
-            ? "Couldn't find any text on this page, so this answer doesn't use it."
-            : "Couldn't read the chat on this page, so this answer doesn't use it.";
+        this.contextNote = R.answers.unreadNote(reading);
         this.bubble.setNote(this.contextNote);
         this.react('startled', () => this.think());
       } else {
@@ -1205,75 +564,32 @@
         this.think();
       }
 
-      let port;
-      try {
-        port = R.ext.runtime.connect({ name: 'renard:ask' });
-      } catch {
-        // The extension was reloaded or updated since this page loaded.
-        this.failed({ kind: 'network', message: 'Renard was updated. Reload the page to keep going.' }, '');
-        return;
-      }
-      this.port = port;
-      let text = '';
-      // Pings keep the background awake through a long answer (Firefox
-      // otherwise suspends an idle background page after about 30 s).
-      const keepAlive = setInterval(() => {
-        try {
-          port.postMessage({ type: 'ping' });
-        } catch {
-          clearInterval(keepAlive);
-        }
-      }, 10000);
-      const release = () => {
-        clearInterval(keepAlive);
-        if (this.port === port) this.port = null;
-        port.disconnect();
-      };
-      port.onMessage.addListener((m) => {
-        if (this.port !== port || !m) return;
-        if (m.type === 'loading') {
-          // The built-in model is loading; say so unless text already came.
-          if (!text) this.bubble.setLine(this.line('localLoading'), { onChar: this.blip });
-        } else if (m.type === 'context') {
-          const notes = [];
-          // The page or chat talks to AI models ("ignore the question"):
-          // a model, especially the small built-in one, may do what it says.
-          if (m.aimed) notes.push(`This ${m.page ? 'page' : 'chat'} has text aimed at AI assistants, such as instructions to ignore your question. The answer may follow it, so check it before acting on it.`);
-          if (m.page && m.partial) notes.push(`Read the first part of this page (${m.included} of ${m.total} characters).`);
-          else if (m.partial) notes.push(`Read the latest part of this chat (${m.included} of ${m.total} messages).`);
-          this.contextNote = notes.join(' ');
-          if (this.contextNote) this.bubble.setNote(this.contextNote);
-        } else if (m.type === 'delta') {
-          const piece = String(m.text || '');
-          text += piece;
-          this.bubble.appendAnswer(piece);
-        } else if (m.type === 'done') {
-          release();
-          this.answered(text, { limited: m.limited === true });
-        } else if (m.type === 'error') {
-          release();
-          this.failed(m, text);
-        }
-      });
-      port.onDisconnect.addListener(() => {
-        clearInterval(keepAlive);
-        if (this.port !== port) return;
-        this.port = null;
-        this.failed({ kind: 'network', message: 'Lost the connection to the extension. Try again.' }, text);
-      });
-      try {
-        port.postMessage({ type: 'ask', question, chat, page, image });
-      } catch {
-        release();
-        this.failed({ kind: 'network', message: 'Renard was updated. Reload the page to keep going.' }, '');
-      }
+      this.request = R.sendQuestion(
+        { question, chat, page, image },
+        {
+          loading: () => this.bubble.setLine(this.line('localLoading'), { onChar: this.blip }),
+          context: (m) => {
+            this.contextNote = R.answers.contextNote(m);
+            if (this.contextNote) this.bubble.setNote(this.contextNote);
+          },
+          delta: (piece) => this.bubble.appendAnswer(piece),
+          done: (text, limited) => {
+            this.request = null;
+            this.answered(text, { limited });
+          },
+          failed: (m, text) => {
+            this.request = null;
+            this.failed(m, text);
+          },
+        },
+      );
     }
 
     // limited: the answer stopped at the model's output limit.
     answered(text, { limited = false } = {}) {
-      this.bubble.setAnswer(text, { streaming: false });
+      this.bubble.setAnswer(text);
       // Added to the note about what was read, which stays.
-      const extra = !text ? 'Hmm, the answer came back empty. Try asking again?' : limited ? "This answer reached the model's length limit, so it ends early." : '';
+      const extra = R.answers.endNote(text, limited);
       if (extra) this.bubble.setNote([this.contextNote, extra].filter(Boolean).join(' '));
       const line = this.line('answered');
       this.bubble.setLine(line, { onChar: this.blip });
@@ -1284,42 +600,16 @@
     }
 
     failed(m, text) {
-      const e = ERRORS[m.kind] || ERRORS.unknown;
+      const e = R.answers.errorStyle(m.kind);
       if ((!text || e.discard) && this.last && this.last.image && !this.attachment) this.setAttachment(this.last.image);
-      this.bubble.setAnswer(e.discard ? '' : text, { streaming: false });
-      this.bubble.setNotice({ text: this.errorDetail(m), settings: e.settings });
+      this.bubble.setAnswer(e.discard ? '' : text);
+      this.bubble.setNotice({ text: R.answers.errorDetail(m, this.state.providerName), settings: e.settings });
       const line = this.line(e.line);
       this.bubble.setLine(line, { onChar: this.blip });
       this.bubble.announce(line);
       if (m.kind === 'keyMissing' || m.kind === 'permission') this.refresh().catch(() => {});
       this.react('startled');
       if (!this.bubble.isOpen && !this.hidden) this.fox.say(line);
-    }
-
-    errorDetail(m) {
-      const p = this.state.providerName;
-      switch (m.kind) {
-        case 'keyMissing':
-          return 'Connect a model in settings to keep going.';
-        case 'permission':
-          return `Allow Renard to reach ${p} in settings.`;
-        case 'refused':
-          return '';
-        case 'rateLimited':
-          return `${p} is rate limiting requests right now.`;
-        case 'keyInvalid':
-          // Fixed text: some providers echo part of the key in their message.
-          return `${p} didn't accept the API key. Check it in settings.`;
-        case 'modelUnavailable':
-          return `That model isn't available for this ${p} key. Pick another in settings.`;
-        case 'imageUnsupported':
-          return `That ${p} model can't read images. Pick another in settings, or ask without the screenshot.`;
-        case 'localMissing':
-        case 'noGpu':
-          return m.message;
-        default:
-          return m.message ? `${p}: ${scrubError(m.message)}` : '';
-      }
     }
 
     // Clears the question and answer (stopping one still streaming) so the
@@ -1339,18 +629,20 @@
     }
 
     stop() {
-      if (!this.port) return;
+      if (!this.request) return;
       this.cancelAsk();
-      this.bubble.setAnswer(this.bubble.markdown, { streaming: false });
+      this.bubble.setAnswer(this.bubble.markdown);
       this.bubble.setLine(this.line('stopped'), { onChar: this.blip });
       this.rest();
     }
 
     cancelAsk() {
-      if (!this.port) return;
-      const port = this.port;
-      this.port = null;
-      port.disconnect();
+      if (!this.request) return;
+      const request = this.request;
+      this.request = null;
+      request.cancel();
     }
   };
+
+  Object.assign(R.App.prototype, R.FoxBehavior);
 })();
