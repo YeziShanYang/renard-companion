@@ -52,8 +52,8 @@
   -webkit-font-smoothing: antialiased;
 
   /* The root is shown as a popover, in the top layer (see raise() in
-     app.js). This undoes the browser's popover box: centered, sized to its
-     content, bordered and painted. Everything inside is fixed-position. */
+     stage.js). This undoes the browser's popover box: centered, sized to
+     its content, bordered and painted. Everything inside is fixed-position. */
   position: fixed;
   inset: 0 auto auto 0;
   width: 0;

@@ -188,14 +188,14 @@ the background script reads them, and the settings page asks it. See
 ```
 src/
   manifest.json          MV3, written for Firefox; the Chrome build swaps in a service worker
-  background/            API calls, settings, asset delivery, badge, shortcuts
-  shared/                constants, settings access, provider clients, prompt, image scaling
+  background/            API calls, settings, site scripts, badge (background.js lists its modules)
+  shared/                constants, settings access, provider clients (providers/), prompt, image scaling
   engine/                built-in model (Transformers.js on WebGPU)
-  content/               on-page UI: the fox, the bubble's outline, the screenshot picker (closed Shadow DOM)
+  content/               on-page UI: the fox, the bubble's outline, the screenshot picker (app.js lists its parts)
     adapters/            per-site chat reading, composer location, theme; web.js reads any other page
-  bubble/                the bubble's contents, in an extension frame
+  bubble/                the bubble's contents in an extension frame, and the Markdown renderer
   popup/                 toolbar menu (show Renard, this site, settings)
-  options/               settings page
+  options/               settings page, one module per section
   lines.json             canned fox lines
   fonts/                 Silkscreen (SIL Open Font License)
   icons/                 toolbar icons (original fox head, from scripts/make-icons.mjs)
@@ -224,10 +224,10 @@ The adapters in `content/adapters/` are the only site-specific code. Each chat
 adapter reads the user and assistant turns, finds the message box so the bubble
 can avoid covering it, and reports the page theme. If an adapter can't find the messages on a chat
 page, Renard says so and answers without the chat. `web.js` handles every other
-site by reading its largest main or article region. Both read text the way
-`messageText()` in `common.js` does: without buttons, and without text the page
-hides from view, which a page could otherwise use to slip instructions to the
-model.
+site by reading its largest main or article region. Both read text with
+`adapters/text.js`, which leaves out buttons and the text that `visibility.js`
+finds hidden from view, since a page could otherwise use hidden text to slip
+instructions to the model.
 
 For other websites, Renard asks for optional host access one site at a time
 from the toolbar menu. The background script then registers the same content
@@ -250,7 +250,8 @@ suspends an idle background page after about 30 seconds, so the page and
 settings ping the background during answers and downloads. The engine's code
 ships in the package. Only the model weights are downloaded.
 
-`shared/providers.js` calls the APIs with `fetch` and parses their SSE streams.
+`shared/providers/` calls the APIs with `fetch`, one file per provider, and
+parses their SSE streams.
 It uses the Anthropic Messages API (`anthropic-version: 2026-10-21`), the
 OpenAI Responses API, and the Gemini API's `streamGenerateContent` with
 `alt=sse`. Gemini keys go in the `x-goog-api-key` header, never in the URL.
