@@ -94,6 +94,12 @@
     return svg;
   };
 
+  // A button holding a pixel icon, with its label as both its accessible
+  // name and its tooltip.
+  R.iconButton = function (name, label, onclick, extra = {}) {
+    return R.h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, onclick, ...extra }, [R.icon(name)]);
+  };
+
   // RPG-style reveal. Returns a cancel function. The full text is exposed to
   // assistive tech separately by the caller, so it is announced once.
   R.typewrite = function (el, text, { speed = 28, onChar } = {}) {
