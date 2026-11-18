@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 await import('../src/content/keys.js');
-const { parseShortcut, matchesShortcut } = globalThis.Renard;
+const { parseShortcut, parseShortcuts, matchesShortcut } = globalThis.Renard;
 
 const key = (code, mods = {}) => ({ code, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, ...mods });
 
@@ -81,4 +81,11 @@ test("parses Chrome's macOS arrow and navigation symbols", () => {
   assert.equal(parseShortcut('⌥⇧⇞', true).code, 'PageUp');
   assert.equal(parseShortcut('⌥⇧↖', true).code, 'Home');
   assert.equal(parseShortcut('Alt+Shift+Up', false).code, 'ArrowUp');
+});
+
+test('parses a map of shortcuts, leaving out unrecognized ones', () => {
+  assert.deepEqual(parseShortcuts({ 'toggle-bubble': 'Alt+Shift+F', 'toggle-visibility': '', other: 'Alt+MediaPlayPause' }, true), {
+    'toggle-bubble': parseShortcut('Alt+Shift+F'),
+  });
+  assert.deepEqual(parseShortcuts(undefined), {});
 });
