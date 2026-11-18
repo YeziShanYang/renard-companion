@@ -120,7 +120,7 @@ Renard is not affiliated with Anthropic, OpenAI, or Google. Fox art by Elthen ("
    > 11.12.0, inside highlightElement(), which Renard doesn't call. Renard
    > calls hljs.highlight() on code from an answer, parses the returned markup
    > in an inert document (DOMParser) and copies only its text and its
-   > "hljs-*" class spans into the answer (content/markdown.js).
+   > "hljs-*" class spans into the answer (bubble/markdown-render.js).
    > vendor/katex/ holds katex.min.js, katex.min.css and
    > the woff2 fonts from dist/ of the npm package katex 0.19.1, used with
    > trust: false, so formulas can't add links, images or attributes. Both
