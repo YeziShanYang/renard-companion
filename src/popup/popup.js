@@ -2,7 +2,8 @@
 // site in the current tab, and a way into settings. It reads only the
 // settings it shows, never the API keys.
 import '../shared/constants.js';
-import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn } from '../shared/settings.js';
+import { ext, loadSettings, saveSettings, hasOrigins, requiredOrigins, siteIsOn, send } from '../shared/settings.js';
+import { drawHeaderFox } from '../shared/header-fox.js';
 
 const R = globalThis.Renard;
 const $ = (id) => document.getElementById(id);
@@ -11,12 +12,6 @@ const KEYS = ['spawned', 'provider', 'sites', 'otherSites', 'allSites', 'skipped
 let tab = null; // { id, host, site } for the active tab
 // Every website is on and allowed: this site's switch only skips it.
 let everywhere = false;
-
-async function send(type, payload) {
-  const res = await ext.runtime.sendMessage({ type, ...payload });
-  if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');
-  return res.result;
-}
 
 // The active tab and the site Renard would treat it as. Opening the popup
 // grants temporary access to the tab (activeTab), so its address is visible.
@@ -128,23 +123,5 @@ $('open-settings').addEventListener('click', async () => {
   window.close();
 });
 
-function drawFox() {
-  const canvas = $('fox');
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const start = (sheet, fallback) => {
-    const sprite = new R.Sprite(canvas, sheet, fallback);
-    if (reduce) sprite.hold('idle', 0);
-    else sprite.play('idle');
-  };
-  const img = new Image();
-  img.onload = () => start(img, null);
-  img.onerror = () => {
-    const icon = new Image();
-    icon.onload = () => start(null, icon);
-    icon.src = '../icons/icon-16.png';
-  };
-  img.src = '../assets/fox-sprite-sheet.png';
-}
-
-drawFox();
+drawHeaderFox($('fox'));
 render();

@@ -150,10 +150,8 @@ async function loadApiKeys() {
   return keysCache;
 }
 
-async function askForApiKeys() {
-  const res = await ext.runtime.sendMessage({ type: 'renard:apiKeys' });
-  if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');
-  return res.result;
+function askForApiKeys() {
+  return send('renard:apiKeys');
 }
 
 async function readApiKeys() {
@@ -212,6 +210,14 @@ export function changedSettings(changes) {
   const keys = Object.keys(changes).filter((k) => Object.prototype.hasOwnProperty.call(R.DEFAULTS, k));
   if ('apiKeysVersion' in changes && !keys.includes('apiKeys')) keys.push('apiKeys');
   return keys;
+}
+
+// A message to the background script, from an extension page. Resolves to
+// its result, or fails with its error.
+export async function send(type, payload) {
+  const res = await ext.runtime.sendMessage({ type, ...payload });
+  if (!res || !res.ok) throw new Error((res && res.error) || 'No response from Renard');
+  return res.result;
 }
 
 export async function hasOrigins(origins) {
