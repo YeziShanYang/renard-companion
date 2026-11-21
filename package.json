@@ -15,7 +15,8 @@
     "lint": "web-ext lint --source-dir src",
     "build": "node scripts/package.mjs",
     "test": "node --test \"test/*.test.mjs\"",
-    "test:firefox": "node test/e2e/firefox-install.mjs"
+    "test:firefox": "node test/e2e/firefox-install.mjs",
+    "test:chrome": "node test/e2e/chrome-install.mjs"
   },
   "devDependencies": {
     "@highlightjs/cdn-assets": "11.12.0",
