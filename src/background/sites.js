@@ -159,9 +159,9 @@ export async function removeSite(host) {
   return { removed: host };
 }
 
-// A single website granted from the popup's switch (or the browser's own
-// site-access controls) means "Renard here", so it's added.
-export function grantedWebHosts(permissions) {
+// The single websites in a grant, from the popup's switch or the browser's
+// own site-access controls.
+function grantedWebHosts(permissions) {
   const out = [];
   for (const origin of (permissions && permissions.origins) || []) {
     const m = /^https:\/\/([^/*]+)\/\*$/.exec(origin);
@@ -170,13 +170,18 @@ export function grantedWebHosts(permissions) {
   return out;
 }
 
-// Access to an added site was revoked (in the browser's own settings, say):
-// forget the site, so the list only ever holds sites Renard can reach.
-async function pruneOtherSites() {
+// Access to added sites was taken back (in the browser's own settings,
+// say): forget each site whose own access went and that Renard can no
+// longer reach. A site reached only through access to every website stays
+// listed when that access goes: Firefox stores no access of its own for a
+// site added while that access covers it, and its "all websites" switch
+// isn't a choice about the site. The site comes back with the access.
+async function pruneOtherSites(removedOrigins) {
   await update('otherSites', async (otherSites) => {
     const keep = [];
     for (const host of otherSites) {
-      if (R.isWebHost(host) && (await hasOrigins([R.originFor(host)]))) keep.push(host);
+      const origin = R.originFor(host);
+      if (R.isWebHost(host) && (!removedOrigins.includes(origin) || (await hasOrigins([origin])))) keep.push(host);
     }
     return keep.length === otherSites.length ? undefined : keep;
   });
@@ -210,15 +215,6 @@ async function injectWebTabs() {
   }
 }
 
-// The browser took back the access to all websites (from its own
-// extension settings, say): Every website turns off, as the settings page
-// then shows.
-async function pruneAllSites() {
-  if ((await loadSettings(['allSites'])).allSites && !(await hasOrigins([R.ALL_WEB]))) {
-    await update('allSites', () => false);
-  }
-}
-
 // A website turned off, or back on, from the toolbar popup while Renard is
 // on every website. A skipped site stays off in either mode, also if it was
 // added on its own, until it's turned back on or added again.
@@ -236,12 +232,32 @@ export async function skipSite(host, skip) {
   return { host, skipped: skip };
 }
 
-// Access was taken back: forget added sites that lost it, turn Every
-// website off if it did, and register the script for what's left.
-export function pruneSites() {
-  return pruneOtherSites()
-    .then(() => pruneAllSites())
-    .then(() => syncSiteScripts());
+// ---- access granted or taken back ------------------------------------------------
+
+// The patterns that cover every website: Every website asks for the first
+// and screenshots for the second. Firefox's "all websites" switch in its
+// add-on settings grants or takes back both at once.
+const ALL_SITES_ORIGINS = [R.ALL_WEB, '<all_urls>'];
+
+// Access was taken back (permissions: what went): forget added sites that
+// lost their own access, and register the script for what's left. Every
+// website stays on, though it only runs while Renard has access to every
+// website (see everywhere), so it comes back with that access.
+export function pruneSites(permissions) {
+  return pruneOtherSites((permissions && permissions.origins) || []).then(() => syncSiteScripts());
+}
+
+// Access was granted, from a prompt or the browser's own extension
+// settings. A single website granted means "Renard here", so it's added.
+// Access to claude.ai, ChatGPT or every website brings Renard to the open
+// tabs it now reaches, Every website included if it's on.
+export async function accessGranted(permissions) {
+  const origins = (permissions && permissions.origins) || [];
+  for (const host of grantedWebHosts(permissions)) addSite(host).catch(() => {});
+  const allWeb = origins.some((o) => ALL_SITES_ORIGINS.includes(o));
+  const chatSite = Object.values(R.SITES).some((site) => site.origins.some((o) => origins.includes(o)));
+  if (allWeb) await syncSiteScripts();
+  if (allWeb || chatSite) await injectOpenTabs();
 }
 
 // ---- open tabs at startup ---------------------------------------------------------

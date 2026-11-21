@@ -17,7 +17,7 @@ import { handleMessage } from './messages.js';
 import { serveAsk } from './ask.js';
 import { serveDownloads } from './local-models.js';
 import { isEnginePort, acceptEnginePort } from './engine-client.js';
-import { addSite, grantedWebHosts, injectOpenTabs, pruneSites, startOnce, syncSiteScripts } from './sites.js';
+import { accessGranted, pruneSites, startOnce, syncSiteScripts } from './sites.js';
 import { updateBadge } from './badge.js';
 import { forgetTab } from './session.js';
 import { fromSettings } from './senders.js';
@@ -25,8 +25,6 @@ import { fromSettings } from './senders.js';
 // This script moves API keys out of storage.local when it finds them there
 // (see settings.js).
 moveKeysHere();
-
-const R = globalThis.Renard;
 
 // Settings whose change open tabs need to hear about (and that can change
 // what access Renard needs), and those that change where it runs.
@@ -71,19 +69,18 @@ ext.storage.onChanged.addListener((changes, area) => {
   if (SITE_SETTINGS.some((k) => changed.includes(k))) syncSiteScripts();
 });
 
+// Access granted or taken back, from settings, the popup, or the browser's
+// own extension settings.
 ext.permissions.onAdded.addListener((permissions) => {
   updateBadge().catch(() => {});
   broadcastRefresh();
-  for (const host of grantedWebHosts(permissions)) addSite(host).catch(() => {});
-  // Access to claude.ai or ChatGPT granted later (from settings, the popup,
-  // or the browser's extensions panel): bring Renard to their open tabs now.
-  if (Object.values(R.SITES).some((site) => site.origins.some((o) => permissions.origins?.includes(o)))) injectOpenTabs();
+  accessGranted(permissions).catch(() => {});
 });
 
-ext.permissions.onRemoved.addListener(() => {
+ext.permissions.onRemoved.addListener((permissions) => {
   updateBadge().catch(() => {});
   broadcastRefresh();
-  pruneSites().catch(() => {});
+  pruneSites(permissions).catch(() => {});
 });
 
 ext.commands.onCommand.addListener(async (command, tab) => {

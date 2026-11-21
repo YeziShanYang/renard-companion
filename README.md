@@ -162,6 +162,13 @@ Chrome it stays granted until you remove it in the browser's extension
 settings, because Chrome can't take back access to all websites without taking
 back claude.ai and the AI providers too.
 
+If you take that access back in the browser's extension settings, Every
+website stays turned on, and Renard comes back to every site once the access
+is allowed again. Until then, settings shows an Allow access button next to
+it. In Firefox, Renard's Permissions tab in `about:addons` has a single switch,
+"Access your data for all websites", for both this access and the one
+screenshots use.
+
 On macOS, Alt is Option. To change the shortcuts, go to `about:addons` → gear
 menu → Manage Extension Shortcuts in Firefox, or to
 `chrome://extensions/shortcuts` in Chrome. Renard picks up the new keys.

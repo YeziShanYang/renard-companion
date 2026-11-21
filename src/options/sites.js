@@ -89,6 +89,10 @@ export async function renderSites() {
       textContent: skipped ? 'Added, then turned off from the toolbar menu' : 'Added from the toolbar menu',
     });
     text.append(Object.assign(document.createElement('span'), { className: 'row-title', textContent: host }), hint);
+    // Kept while access to every website is away, if that's what let
+    // Renard in.
+    const granted = await hasOrigins([R.originFor(host)]);
+    if (!granted) text.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: "The browser hasn't let Renard into this site. Allow access to bring the fox here." }));
     const remove = Object.assign(document.createElement('button'), { type: 'button', className: 'btn', textContent: 'Remove' });
     remove.setAttribute('aria-label', `Remove ${host}`);
     remove.addEventListener('click', async () => {
@@ -104,6 +108,13 @@ export async function renderSites() {
     });
     const actions = document.createElement('div');
     actions.className = 'row-actions';
+    if (!granted) {
+      actions.append(
+        accessButton([R.originFor(host)], () => {
+          renderSites();
+        }),
+      );
+    }
     if (skipped) actions.append(turnOnButton(host, hint));
     actions.append(remove);
     li.append(text, actions);
@@ -135,7 +146,10 @@ function turnOnButton(host, hint) {
 
 // The Every website switch. It's on only while the browser has granted
 // access to all secure websites, too. Turning it on asks for that access in
-// the same click, and turning it off gives the access back.
+// the same click, and turning it off gives the access back. If the browser
+// takes the access back (Firefox's "all websites" switch in its add-on
+// settings, say), the setting stays on and works again once the access
+// returns.
 async function allSitesRow() {
   const li = document.createElement('li');
   li.className = 'row';
@@ -147,7 +161,17 @@ async function allSitesRow() {
     textContent: 'Every secure (https) website, not only the ones you add. A site you turn off from the toolbar menu stays off.',
   });
   text.append(title, hint);
+  const actions = document.createElement('div');
+  actions.className = 'row-actions';
   const granted = await hasOrigins([R.ALL_WEB]);
+  if (settings.allSites && !granted) {
+    text.append(Object.assign(document.createElement('span'), { className: 'hint', textContent: "The browser hasn't let Renard into every website. Allow access to bring the fox back." }));
+    actions.append(
+      accessButton([R.ALL_WEB], () => {
+        renderSites();
+      }),
+    );
+  }
   const { label, input } = switchControl('site-all', settings.allSites && granted, title.id);
   input.addEventListener('click', () => {
     const on = input.checked;
@@ -159,8 +183,6 @@ async function allSitesRow() {
       )
       .then(renderSites, renderSites);
   });
-  const actions = document.createElement('div');
-  actions.className = 'row-actions';
   actions.append(label);
   li.append(text, actions);
   return li;

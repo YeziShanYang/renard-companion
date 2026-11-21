@@ -366,11 +366,50 @@ test('Every website: on registers for all https pages, off gives the access back
   assert.deepEqual(fake.registered, []);
 });
 
-test('Every website turns off when the browser takes the access back', async () => {
-  await reset({ local: { allSites: true }, grants: [...MANIFEST_HOSTS, 'https://*/*'] });
-  fake.revokeAndNotify('https://*/*');
+// Firefox's "all websites" switch in its add-on settings takes back (and
+// grants) https://*/* and <all_urls> together.
+test('Every website stays on while the browser takes the access back, and returns with it', async () => {
+  await reset({ grants: [...MANIFEST_HOSTS, 'https://*/*', '<all_urls>'] });
+  await ok({ type: 'renard:setAllSites', on: true }, SETTINGS);
   await settle(60);
-  assert.equal(stored().allSites, false);
+  const page = { url: 'https://a.example/', tab: { id: 40 } };
+  fake.revokeAndNotify('https://*/*', '<all_urls>');
+  await settle(60);
+  assert.equal(stored().allSites, true, 'the setting is kept');
+  assert.deepEqual(fake.registered, [], 'nothing is registered without the access');
+  assert.equal((await ok({ type: 'renard:getState', site: 'web' }, page)).enabled, false);
+  assert.deepEqual(fake.callsNamed('action.setBadgeText').at(-1), [{ text: '!' }], 'the badge flags the missing access');
+
+  fake.addTab({ id: 40, url: page.url });
+  fake.clearCalls();
+  fake.grantAndNotify('https://*/*', '<all_urls>');
+  await settle(60);
+  assert.deepEqual(fake.registered.map((s) => s.matches), [['https://*/*']]);
+  const injected = fake.callsNamed('scripting.executeScript').filter(([c]) => c.files).map(([c]) => c.target.tabId);
+  assert.deepEqual(injected, [40], 'open tabs get Renard back');
+  assert.equal((await ok({ type: 'renard:getState', site: 'web' }, page)).enabled, true);
+  assert.deepEqual(fake.callsNamed('action.setBadgeText').at(-1), [{ text: '' }]);
+});
+
+// Firefox stores no access for a site added while access to every website
+// covers it, so that access going takes the site's access with it.
+test('an added site reached through access to every website is kept while that access is away', async () => {
+  await reset({ grants: [...MANIFEST_HOSTS, '<all_urls>'] });
+  await fake.ext.storage.local.set({ otherSites: ['example.com'] });
+  await settle(60);
+  assert.deepEqual(fake.registered.map((s) => s.matches), [['https://example.com/*']]);
+  fake.revokeAndNotify('https://*/*', '<all_urls>');
+  await settle(60);
+  assert.deepEqual(stored().otherSites, ['example.com']);
+  assert.deepEqual(fake.registered, []);
+
+  fake.addTab({ id: 20, url: 'https://example.com/a' });
+  fake.clearCalls();
+  fake.grantAndNotify('https://*/*', '<all_urls>');
+  await settle(60);
+  assert.deepEqual(fake.registered.map((s) => s.matches), [['https://example.com/*']]);
+  const injected = fake.callsNamed('scripting.executeScript').filter(([c]) => c.files).map(([c]) => c.target.tabId);
+  assert.deepEqual(injected, [20]);
 });
 
 test('access to an added site revoked: the site is forgotten', async () => {

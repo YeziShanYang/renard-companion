@@ -241,11 +241,11 @@ export async function siteIsOn(s, site) {
   return s.otherSites.includes(site.name) && (await hasOrigins(site.origins));
 }
 
-// Origins Renard needs for the current settings: every enabled site plus the
-// selected provider's API.
+// Origins Renard needs for the current settings: every enabled site, every
+// website while Every website is on, and the selected provider's API.
 export function requiredOrigins(settings) {
   const sites = Object.values(R.SITES)
     .filter((s) => settings.sites[s.id] !== false)
     .flatMap((s) => s.origins);
-  return [...sites, ...R.PROVIDERS[settings.provider].origins];
+  return [...sites, ...(settings.allSites ? [R.ALL_WEB] : []), ...R.PROVIDERS[settings.provider].origins];
 }

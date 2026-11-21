@@ -135,9 +135,9 @@ Read page on.
 - Optional access to all websites, which Renard asks for the first time you
   click the camera button. Browsers let an extension take a screenshot of a
   page only with this access. Renard uses it to capture the area you choose,
-  when you choose it, and it doesn't make Renard run on any other site. You can
-  take it back in your browser's extension settings. Pasting or dropping an
-  image works without it.
+  when you choose it. Unless Every website is on, it doesn't make Renard run
+  on any other site. You can take it back in your browser's extension
+  settings. Pasting or dropping an image works without it.
 
 ## Removing your data
 
