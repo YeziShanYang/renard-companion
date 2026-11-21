@@ -1,5 +1,8 @@
 # Renard
 
+Install Renard for Firefox from
+[addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/renard-pixel-fox/).
+
 ## Introduction
 
 <!-- Introduction: to be written by the owner -->
@@ -35,8 +38,8 @@ Gemini models. The built-in model reads text only.
 The fox's lines (`src/lines.json`) and animations are scripted. The model only
 writes answers and has no persona.
 
-Renard runs in Firefox, its main target, and in Chrome. It isn't on the add-on
-stores yet, so for now you load it from source.
+Renard runs in Firefox, its main target, and in Chrome. Firefox users can
+install it from addons.mozilla.org. In Chrome, for now, you load it from source.
 
 ## Setup
 
