@@ -24,6 +24,8 @@ const TARGET_SCALE = 1.02;
 const PAGE_GAP = 26;
 const EASE_OUT = 'cubic-bezier(0.23, 1, 0.32, 1)';
 const TYPE_MS = 32;
+// How long stray clicks are kept out after the frame or the page moves.
+const SHIELD_MS = 400;
 
 const motionOk = () => matchMedia('(prefers-reduced-motion: no-preference)').matches;
 const scrollBehavior = () => (motionOk() ? 'smooth' : 'auto');
@@ -117,6 +119,8 @@ function chooseProvider(id) {
   if (!tour) return;
   const hadFocus = $('tour-extra').contains(document.activeElement);
   $('tour-extra').replaceChildren(...extraFor(tour.steps[tour.index].extra));
+  // The button went, so the frame got shorter.
+  shield();
   if (hadFocus) $('tour-next').focus({ preventScroll: true });
 }
 
@@ -155,12 +159,17 @@ export function maybeStartTour() {
 
 // replay: started from the footer's button.
 export async function startTour({ replay = false } = {}) {
+  // Asked for while a tour is on its way out: it starts once that one's gone.
+  if (tour && tour.ending && replay) await tour.ended;
   if (tour) return;
   const steps = await buildSteps();
   const sprite = await foxSprite();
   if (tour) return;
-  tour = { steps, index: 0, replay, sprite, typing: null, entering: null, ending: false };
-  const t = tour;
+  const t = { steps, index: 0, replay, sprite, typing: null, entering: null, ending: false };
+  t.ended = new Promise((resolve) => (t.markEnded = resolve));
+  tour = t;
+  // A replay scrolls the page out from under the pointer.
+  shield();
   if (replay && scrollY > 0) await scrollHome();
   if (tour !== t) return;
   const root = $('tour');
@@ -201,7 +210,8 @@ async function enter(t) {
     ],
     { duration: 300, easing: 'ease-out' },
   );
-  typeLine();
+  if (t.sayAtOnce) setLine(Infinity);
+  else typeLine();
 }
 
 // Finished or skipped. The fox runs back out the way it came, the frame
@@ -222,21 +232,25 @@ export async function endTour() {
   const canvas = $('tour-fox');
   const hadFocus = root.contains(document.activeElement);
   point(null);
-  if (motionOk()) {
+  // A tab in the background doesn't run animations (another tab finished
+  // the tour, say), so there the frame just goes.
+  if (document.hidden) {
+    // nothing to watch
+  } else if (motionOk()) {
     canvas.style.scale = '-1 1';
     t.sprite.play('walk', { ms: 55 });
-    await canvas.animate([{ translate: '0 0' }, { translate: '-110% 0' }], { duration: 450, easing: 'ease-in', fill: 'forwards' }).finished.catch(() => {});
-    await card
-      .animate(
+    await played(canvas.animate([{ translate: '0 0' }, { translate: '-110% 0' }], { duration: 450, easing: 'ease-in', fill: 'forwards' }));
+    await played(
+      card.animate(
         [
           { opacity: 1, translate: '0 0' },
           { opacity: 0, translate: '0 -12px' },
         ],
         { duration: 150, easing: 'ease-out', fill: 'forwards' },
-      )
-      .finished.catch(() => {});
+      ),
+    );
   } else {
-    await card.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'linear', fill: 'forwards' }).finished.catch(() => {});
+    await played(card.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'linear', fill: 'forwards' }));
   }
   // Taking the frame out moves the page up by its height. If it's above the
   // window, scroll by as much, so what's on screen stays where it is.
@@ -252,10 +266,20 @@ export async function endTour() {
   t.sprite.stop();
   delete document.querySelector('.page').dataset.touring;
   tour = null;
+  // The page just moved up into the frame's place.
+  shield();
   if (hadFocus) {
     const next = t.replay ? $('tour-replay') : document.querySelector('input[name="provider"]:checked');
     if (next) next.focus({ preventScroll: true });
   }
+  t.markEnded();
+}
+
+// Waits for an animation, or a little past its length if it stalls (the tab
+// went into the background partway).
+function played(animation) {
+  const ms = Number(animation.effect.getTiming().duration) || 0;
+  return Promise.race([animation.finished.catch(() => {}), new Promise((resolve) => setTimeout(resolve, ms + 250))]);
 }
 
 // Another settings tab finished the tour.
@@ -268,7 +292,10 @@ export function tourDoneElsewhere() {
 function next() {
   const t = tour;
   if (!t || t.ending) return;
+  // Pressed before the fox arrived: it's there at once, its line already
+  // said.
   if (t.entering) {
+    t.sayAtOnce = true;
     t.entering.finish();
     return;
   }
@@ -310,19 +337,15 @@ function show(i, { type = true } = {}) {
   $('tour-extra').replaceChildren(...extraFor(step.extra));
   $('tour-live').textContent = `${step.say} ${$('tour-detail').textContent}`;
 
-  const target = step.target ? $(step.target).closest('.card') : null;
+  const target = targetOf(step);
   pin(Boolean(target));
+  holdPlace();
   point(target);
-  if (target) {
-    // The section grows from its center (TARGET_SCALE), so its top edge
-    // rises by half of what it gains.
-    const grow = motionOk() ? (target.offsetHeight * (TARGET_SCALE - 1)) / 2 : 0;
-    const top = target.offsetTop - grow - (PIN_TOP + root.querySelector('.tour-card').offsetHeight + PIN_GAP);
-    scrollTo({ top: Math.max(0, top), behavior: scrollBehavior() });
-  } else if (scrollY > 0) {
-    scrollTo({ top: 0, behavior: scrollBehavior() });
-  }
+  if (target) scrollToSection(target, scrollBehavior());
+  else if (scrollY > 0) scrollTo({ top: 0, behavior: scrollBehavior() });
+  shield();
 
+  if (!type) setLine(0);
   if (type) {
     typeLine();
     if (last) t.sprite.play('pounce', { onEnd: idle });
@@ -331,21 +354,30 @@ function show(i, { type = true } = {}) {
   }
 }
 
+// Puts the current step's line in place with its first n characters showing
+// and the rest hidden, holding their place. Until it's all showing, #tour
+// has data-typing.
+function setLine(n) {
+  const text = tour.steps[tour.index].say;
+  const chars = Array.from(text);
+  const shown = document.createElement('span');
+  shown.textContent = chars.slice(0, n).join('');
+  const rest = Object.assign(document.createElement('span'), { className: 'tour-untyped', textContent: chars.slice(n).join('') });
+  $('tour-text').replaceChildren(shown, rest);
+  const all = n >= chars.length;
+  $('tour').toggleAttribute('data-typing', !all);
+  $('tour-more').toggleAttribute('data-shown', all);
+  return { shown, rest };
+}
+
 // Types the current step's line out, RPG style. Every character is in place
 // from the start, the untyped ones hidden.
 function typeLine() {
   const t = tour;
   const text = t.steps[t.index].say;
-  const root = $('tour');
-  const shown = document.createElement('span');
-  const rest = Object.assign(document.createElement('span'), { className: 'tour-untyped', textContent: text });
-  $('tour-text').replaceChildren(shown, rest);
-  delete $('tour-more').dataset.shown;
+  const { shown, rest } = setLine(0);
   const done = () => {
-    shown.textContent = text;
-    rest.textContent = '';
-    delete root.dataset.typing;
-    $('tour-more').dataset.shown = '';
+    setLine(Infinity);
     t.typing = null;
   };
   if (!motionOk()) {
@@ -354,7 +386,6 @@ function typeLine() {
   }
   const chars = Array.from(text);
   let n = 0;
-  root.dataset.typing = '';
   const timer = setInterval(() => {
     n++;
     shown.textContent = chars.slice(0, n).join('');
@@ -371,6 +402,52 @@ function typeLine() {
 }
 
 // ---- layout ----------------------------------------------------------------------------
+
+function targetOf(step) {
+  return step.target ? $(step.target).closest('.card') : null;
+}
+
+// Scrolls the section a step is about to just below the pinned frame. The
+// section grows from its center (TARGET_SCALE), so its top edge rises by
+// half of what it gains.
+function scrollToSection(target, behavior) {
+  const card = $('tour').querySelector('.tour-card');
+  const grow = motionOk() ? (target.offsetHeight * (TARGET_SCALE - 1)) / 2 : 0;
+  const top = target.offsetTop - grow - (PIN_TOP + card.offsetHeight + PIN_GAP);
+  scrollTo({ top: Math.max(0, top), behavior });
+}
+
+// A resize or zoom changes the frame's height and where the section is, so
+// once it settles the section is scrolled back in under the frame.
+let resizeTimer = 0;
+
+function onResize() {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (!tour || tour.ending || $('tour').hidden) return;
+    const target = targetOf(tour.steps[tour.index]);
+    if (!target) return;
+    holdPlace();
+    scrollToSection(target, 'auto');
+    shield();
+  }, 150);
+}
+
+// While the frame is pinned, its place in the page keeps the card's current
+// height (it changes from step to step and with the window's width), so the
+// section below is where it would be with the frame in the page. When that
+// place is above the window, the scroll moves with it and nothing on screen
+// jumps.
+function holdPlace() {
+  const root = $('tour');
+  if (!root.hasAttribute('data-pinned')) return;
+  const before = root.offsetHeight;
+  const after = root.querySelector('.tour-card').offsetHeight;
+  if (before === after) return;
+  const above = root.getBoundingClientRect().bottom <= 0;
+  root.style.height = `${after}px`;
+  if (above) scrollBy({ top: after - before, behavior: 'instant' });
+}
 
 // Pins the frame to the top of the window, or puts it back in the page. The
 // frame glides between the two places.
@@ -424,6 +501,30 @@ function scrollHome() {
   });
 }
 
+// ---- stray clicks ----------------------------------------------------------------------------
+
+// When the frame pins, unpins, changes height or goes away, or the page
+// scrolls, something else slides under the pointer. Spam-clicking Next
+// would then press it: a provider button, or Use Built-in. For a moment
+// after each of those moves, the only clicks that get through are on Next,
+// Back and Skip, and each click kept out keeps the rest out a little longer.
+// Clicks from the keyboard (detail 0) always get through.
+let shieldUntil = 0;
+
+function shield() {
+  shieldUntil = performance.now() + SHIELD_MS;
+}
+
+function onPointer(e) {
+  if (performance.now() >= shieldUntil) return;
+  if (e.type === 'click' && e.detail === 0) return;
+  const el = e.target instanceof Element ? e.target : null;
+  if (tour && el && el.closest('#tour-next, #tour-back, #tour-skip')) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (e.type === 'click') shield();
+}
+
 // ---- keys --------------------------------------------------------------------------------
 
 function onKey(e) {
@@ -449,6 +550,8 @@ function onKey(e) {
 }
 
 export function bindTour() {
+  for (const type of ['pointerdown', 'mousedown', 'click', 'auxclick', 'dblclick']) addEventListener(type, onPointer, true);
+  addEventListener('resize', onResize);
   $('tour-next').addEventListener('click', next);
   $('tour-back').addEventListener('click', back);
   $('tour-skip').addEventListener('click', () => endTour());
