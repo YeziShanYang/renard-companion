@@ -75,7 +75,10 @@ npm start
 This opens Firefox with Renard loaded through `web-ext` and reloads the
 extension when files change. To load it into your own profile instead, open
 `about:debugging#/runtime/this-firefox`, click Load Temporary Add-on, and pick
-`src/manifest.json`. Firefox removes it on restart.
+`src/manifest.json`. Firefox removes it on restart. It also keeps the manifest
+from when you loaded it, so click Reload on Renard's entry there after you pull
+or edit files. Otherwise new pages load an outdated list of scripts, and the fox
+can disappear.
 
 Firefox treats host access as optional for Manifest V3 extensions. If the
 toolbar icon has a `!` badge, open Renard's settings and click Allow access for
