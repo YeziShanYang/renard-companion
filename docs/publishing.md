@@ -15,10 +15,13 @@ Web Store from the same code. `npm run build` makes a zip for each.
    ```sh
    npm test
    npm run build
+   npm run test:firefox
    ```
 
    This writes `dist/renard-firefox-<version>.zip` and
-   `dist/renard-chrome-<version>.zip`, and lints the Firefox package.
+   `dist/renard-chrome-<version>.zip`, and lints the Firefox package. The last
+   step installs the Firefox zip in a headless Firefox and checks the first-run
+   tour (see the README's Development section).
 4. Get the listing assets ready:
    - Icon: `src/icons/icon-128.png`.
    - Screenshots: at least one at 1280×800 (Chrome also takes 640×400) showing

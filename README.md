@@ -288,11 +288,19 @@ before the question's text, as an Anthropic image block, an OpenAI
 ## Development
 
 ```sh
-npm test         # unit tests
-npm run lint     # web-ext lint (Mozilla's add-on linter)
-npm run icons    # regenerate src/icons/
-npm run build    # store zips in dist/
+npm test              # unit tests
+npm run lint          # web-ext lint (Mozilla's add-on linter)
+npm run icons         # regenerate src/icons/
+npm run build         # store zips in dist/
+npm run test:firefox  # install the Firefox zip in a headless Firefox and walk the tour
 ```
+
+`npm run test:firefox` needs Firefox installed (`FIREFOX_BIN` points it at
+another copy). Each scenario starts on a new temporary profile: a fresh
+install, skipping, an update from 0.1.3, a replay, reduced motion, dark mode,
+and phone and short-window sizes. Screenshots go to `dist/e2e-shots/`. The
+update scenario needs `dist/renard-firefox-0.1.3.zip` (or `--old` with another
+zip from before 0.1.4) and is skipped without it.
 
 Release steps for addons.mozilla.org and the Chrome Web Store are in
 [docs/publishing.md](docs/publishing.md).
