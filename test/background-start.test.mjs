@@ -56,17 +56,36 @@ test('badge is clear when every needed origin is allowed', () => {
   assert.deepEqual(fake.callsNamed('action.setTitle').at(-1), [{ title: 'Renard' }]);
 });
 
-test('install opens settings when no key is saved; an update does not', async () => {
+test('install opens settings for the tour; an update never does, and one from before the tour skips it', async () => {
+  const opened = () => fake.callsNamed('runtime.openOptionsPage').length;
+  const tourDone = () => fake.ext.storage.local._dump().tourDone;
   fake.clearCalls();
-  fake.ext.runtime.onInstalled.dispatch({ reason: 'update' });
+  fake.ext.runtime.onInstalled.dispatch({ reason: 'update', previousVersion: '0.1.4' });
   await settle(40);
-  assert.equal(fake.callsNamed('runtime.openOptionsPage').length, 0);
+  assert.equal(opened(), 0);
+  assert.equal(tourDone(), undefined, 'an update from a version with the tour leaves it to run');
   fake.ext.runtime.onInstalled.dispatch({ reason: 'install' });
   await settle(40);
-  assert.equal(fake.callsNamed('runtime.openOptionsPage').length, 0, 'a key is saved');
+  assert.equal(opened(), 1, 'a key is saved, but the tour has not run');
+  fake.ext.runtime.onInstalled.dispatch({ reason: 'update', previousVersion: '0.1.3' });
+  await settle(40);
+  assert.equal(opened(), 1);
+  assert.equal(tourDone(), true, 'someone updating from 0.1.3 skips the tour');
+  fake.ext.runtime.onInstalled.dispatch({ reason: 'install' });
+  await settle(40);
+  assert.equal(opened(), 1, 'a key is saved and the tour is done');
   await fake.ext.storage.local.set({ apiKeys: { anthropic: '', openai: '', gemini: '' } });
   await settle(40);
   fake.ext.runtime.onInstalled.dispatch({ reason: 'install' });
   await settle(40);
-  assert.equal(fake.callsNamed('runtime.openOptionsPage').length, 1);
+  assert.equal(opened(), 2, 'no key saved');
+});
+
+test('versions compare part by part', async () => {
+  const { versionBefore } = await import('../src/background/install.js');
+  assert.equal(versionBefore('0.1.3', '0.1.4'), true);
+  assert.equal(versionBefore('0.1.4', '0.1.4'), false);
+  assert.equal(versionBefore('0.1.10', '0.1.4'), false);
+  assert.equal(versionBefore('0.2', '0.1.4'), false);
+  assert.equal(versionBefore('0.1', '0.1.4'), true);
 });

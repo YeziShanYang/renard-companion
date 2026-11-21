@@ -65,6 +65,7 @@ test('settings saved by Renard load back unchanged after a restart', () => {
     // download records).
     localModel: { key: 'gemma-4-e2b', ready: { 'gemma-3-1b': { dtype: 'q4f16', bytes: 783856804, revision: gemma.revision, at: 1 } } },
     positions: { claude: { edge: 'left', y: 0.2 }, 'web:en.wikipedia.org': { edge: 'right', y: 0.9 } },
+    tourDone: true,
   };
   assert.deepEqual(Object.keys(saved).sort(), Object.keys(R.DEFAULTS).sort(), 'every setting is covered');
   for (const [key, value] of Object.entries(saved)) assert.deepEqual(cleanSetting(key, value), value, key);
@@ -77,6 +78,7 @@ test('settings saved by Renard load back unchanged after a restart', () => {
 test('skipped websites keep only host names Renard could visit', () => {
   assert.deepEqual(cleanSetting('skippedSites', ['a.com', 'claude.ai', 'api.openai.com', 'a.com', 'not a host', 7]), ['a.com']);
   assert.equal(cleanSetting('allSites', 'yes'), false);
+  assert.equal(cleanSetting('tourDone', 'yes'), false);
 });
 
 test('stored model records and fox positions are checked before use', () => {

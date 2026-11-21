@@ -45,10 +45,10 @@ all (see "Built-in model" below).
 ## What Renard keeps on your device
 
 Your settings (provider, model, display options, the websites you added, where
-the fox sits, and the bubble's size) are kept in your browser's extension
-storage on your device and aren't sent anywhere. Built-in model files you
-download are kept there too, until you delete them in settings or uninstall
-Renard.
+the fox sits, the bubble's size, and whether you've seen the tour) are kept in
+your browser's extension storage on your device and aren't sent anywhere.
+Built-in model files you download are kept there too, until you delete them in
+settings or uninstall Renard.
 
 Your API key is also kept on your device, unencrypted, in a database of
 Renard's own, which only its background script reads. Websites and Renard's

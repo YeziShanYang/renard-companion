@@ -16,6 +16,7 @@ import { renderSites } from './sites.js';
 import { renderScreenshots } from './screenshots.js';
 import { renderPrefs, bindPrefs } from './display.js';
 import { renderShortcuts } from './shortcuts.js';
+import { bindTour, maybeStartTour, tourDoneElsewhere } from './tour.js';
 
 async function init() {
   Object.assign(settings, await loadSettings());
@@ -25,6 +26,7 @@ async function init() {
   bindAi();
   bindLocal();
   bindPrefs();
+  bindTour();
   drawHeaderFox($('fox'), {
     lively: true,
     onMissing: () => {
@@ -34,6 +36,8 @@ async function init() {
   checkGpu();
   await Promise.all([renderSites(), renderAccess(), renderScreenshots(), renderShortcuts()]);
   checkKey();
+  // First visit after installing: the fox shows the page around.
+  maybeStartTour();
   ext.permissions.onAdded.addListener(() => {
     renderSites();
     renderAccess();
@@ -59,6 +63,7 @@ async function init() {
     Object.assign(settings, fresh);
     const changed = (k) => keys.includes(k) && stable(prev[k]) !== stable(settings[k]);
     if (['sites', 'otherSites', 'allSites', 'skippedSites'].some(changed)) renderSites();
+    if (changed('tourDone') && settings.tourDone) tourDoneElsewhere();
     if (changed('prefs')) renderPrefs();
     if (changed('provider')) {
       renderProvider();

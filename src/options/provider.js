@@ -12,7 +12,7 @@ const R = globalThis.Renard;
 const KEY_HINTS = {
   anthropic: { text: 'Create a key in the Claude Console', url: 'https://platform.claude.com/settings/keys' },
   openai: { text: 'Create a key on the OpenAI platform', url: 'https://platform.openai.com/api-keys' },
-  gemini: { text: 'Create a key in Google AI Studio', url: 'https://aistudio.google.com/apikey' },
+  gemini: { text: 'Get a free key in Google AI Studio', url: 'https://aistudio.google.com/apikey' },
 };
 
 let models = [];
@@ -51,7 +51,13 @@ export function renderProvider() {
   $('key-toggle').setAttribute('aria-pressed', 'false');
   const hint = KEY_HINTS[settings.provider];
   const link = Object.assign(document.createElement('a'), { href: hint.url, target: '_blank', rel: 'noopener noreferrer', textContent: hint.text });
-  $('key-hint').replaceChildren('Stored only in this browser. ', link, '.');
+  // Gemini's API has a free plan, so it's mentioned whichever provider is
+  // picked, along with Built-in, which needs no key.
+  const free =
+    settings.provider === 'gemini'
+      ? ' On the free plan, Google may use what you send to improve its products.'
+      : ' No key? Built-in needs none, and Gemini has a free plan.';
+  $('key-hint').replaceChildren('Stored only in this browser. ', link, '.', free);
 }
 
 export function renderModels() {

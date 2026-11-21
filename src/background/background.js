@@ -11,6 +11,7 @@
 //                     and injection into open tabs
 //   badge.js          the toolbar badge for missing access
 //   session.js        per-tab records (bubble keys, which fox is out)
+//   install.js        first install (opens settings for the tour) and updates
 import '../shared/constants.js';
 import { ext, loadSettings, changedSettings, moveKeysHere } from '../shared/settings.js';
 import { handleMessage } from './messages.js';
@@ -20,6 +21,7 @@ import { isEnginePort, acceptEnginePort } from './engine-client.js';
 import { accessGranted, pruneSites, startOnce, syncSiteScripts } from './sites.js';
 import { updateBadge } from './badge.js';
 import { forgetTab } from './session.js';
+import { installed } from './install.js';
 import { fromSettings } from './senders.js';
 
 // This script moves API keys out of storage.local when it finds them there
@@ -92,14 +94,10 @@ ext.commands.onCommand.addListener(async (command, tab) => {
   if (tabId != null) ext.tabs.sendMessage(tabId, { type: 'renard:command', command }).catch(() => {});
 });
 
-ext.runtime.onInstalled.addListener(async (details) => {
+ext.runtime.onInstalled.addListener((details) => {
   updateBadge().catch(() => {});
   syncSiteScripts();
-  if (details.reason !== 'install') return;
-  // First run only: open settings when no key is saved yet, so reinstalling
-  // during development doesn't open another settings tab each time.
-  const s = await loadSettings();
-  if (!Object.values(s.apiKeys).some(Boolean)) ext.runtime.openOptionsPage();
+  installed(details).catch(() => {});
 });
 
 // ---- startup --------------------------------------------------------------------

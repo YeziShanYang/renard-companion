@@ -118,6 +118,8 @@
     // ({ [id]: { dtype, bytes, at } }).
     localModel: { key: 'gemma-3-1b', ready: {} },
     positions: {}, // per site: { edge: 'left' | 'right', y: 0..1 }
+    // The settings page's first-run tour was finished or skipped.
+    tourDone: false,
   };
 
   // The download record for a built-in model, if it matches the pinned

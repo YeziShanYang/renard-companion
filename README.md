@@ -19,7 +19,7 @@ panel. Between questions it wanders around and eventually naps.
 You don't need an API key. Renard can run Gemma, Google's open model, on your
 graphics chip. After a one-time download in settings it works offline, and your
 questions never leave your computer. For a bigger model, add an Anthropic,
-OpenAI, or Gemini key instead.
+OpenAI, or Gemini key instead. Gemini's API has a free plan.
 
 With Read chat on (the default), the conversation on the page goes along with
 your question, for requests like "summarize this chat". On other sites the same
@@ -103,10 +103,15 @@ Chrome profile with Renard loaded.
 
 ### First run
 
-Settings opens when you install, and you can reopen it from the toolbar menu.
-To use an API, pick a provider and paste a key. Renard checks the key by
-loading the provider's model list, and then you choose a model. To skip the
-key, pick Built-in and download Gemma.
+Settings opens when you install, and the fox shows you around it in a short
+tour. You can skip it, and Take the tour again at the bottom of the page plays
+it later. You can reopen settings from the toolbar menu.
+
+To use an API, pick a provider and paste a key. Gemini's API has a free plan,
+so you can get a key from [Google AI Studio](https://aistudio.google.com/apikey)
+without paying. On that plan, Google may use what you send to improve its
+products. Renard checks the key by loading the provider's model list, and then
+you choose a model. To skip the key, pick Built-in and download Gemma.
 
 ## Built-in model
 
