@@ -298,7 +298,11 @@ npm run test:firefox  # install the Firefox zip in a headless Firefox and walk t
 `npm run test:firefox` needs Firefox installed (`FIREFOX_BIN` points it at
 another copy). Each scenario starts on a new temporary profile: a fresh
 install, skipping, an update from 0.1.3, a replay, reduced motion, dark mode,
-and phone and short-window sizes. Screenshots go to `dist/e2e-shots/`. The
+and phone and short-window sizes. Stress scenarios spam clicks and keys, resize
+the window mid-step, drag across the frame, spam the replay button, and finish
+the tour in one of two settings tabs. After each, no setting may have changed
+by accident and the page has to be cleanly in or out of the tour. Screenshots
+go to `dist/e2e-shots/`. The
 update scenario needs `dist/renard-firefox-0.1.3.zip` (or `--old` with another
 zip from before 0.1.4) and is skipped without it.
 
