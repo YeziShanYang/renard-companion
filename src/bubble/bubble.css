@@ -198,16 +198,13 @@ body {
   text-overflow: ellipsis;
 }
 
+/* The answer's buttons and the bubble's own sit at the same spacing, so the
+   four read as one evenly spaced row. */
 .head-actions,
 .head-group {
   display: flex;
   gap: 8px;
 }
-
-.head-actions {
-  gap: 16px;
-}
-
 
 /* ---- buttons ------------------------------------------------------------ */
 
